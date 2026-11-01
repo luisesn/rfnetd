@@ -426,6 +426,14 @@ const TX_STATUS = {pending: "⏳ enviado (%×), esperando confirmación…", sen
   rejected: "✗ rechazado por el destinatario", failed: "✗ sin confirmación tras %× envíos"};
 let txInfo = null;
 const peerLabel = c => c.bulletin ? "Boletín " + c.peers[0] : c.peers.join(" ↔ ");
+const ALIAS_RE = /^(WIDE\d*|RELAY|TRACE\d*|TEMP\d*|GATE|ECHO|HOP\d*|RFONLY|NOGATE|TCPIP|TCPXX|qA.)(-\d+)?$/i;
+// Recorrido real: solo los digipeaters que repitieron el paquete (los marcados con *), sin alias WIDEn-n
+function routeText(m, path) {
+  let last = -1; path.forEach((p, i) => { if (p.endsWith("*")) last = i; });
+  const digis = path.slice(0, last + 1).map(p => p.replace(/\*$/, "")).filter(p => !ALIAS_RE.test(p));
+  const hops = [m.src].concat(m.gateway ? [m.gateway + " (IGate)"] : [], digis);
+  return hops.length > 1 ? hops.join(" → ") + " → aquí" : m.src + " → aquí (directo)";
+}
 function msgNode(m) {
   const mine = me && m.src === me, d = el("div", "");
   d.style.cssText = "margin:3px 0;padding:3px 6px;border:1px solid #c8c4bc;max-width:80%;" + (mine ? "margin-left:auto;background:#dde6f5;" : "background:#f4f2ec;") + (m.kind === "ack" || m.kind === "rej" ? "opacity:.6;" : "");
@@ -433,8 +441,7 @@ function msgNode(m) {
   d.append(head, el("div", "", m.kind === "ack" ? "✓ confirmado " + m.text.slice(3) : m.kind === "rej" ? "✗ rechazado " + m.text.slice(3) : m.text));
   if (m.kind !== "ack" && m.kind !== "rej") {
     let path = []; try { path = JSON.parse(m.path || "[]"); } catch (e) {}
-    d.append(el("div", "t", "ruta: " + (m.direction === "tx" ? "enviado vía " + (path.join(",") || "directo")
-      : (path.length ? path.join(" → ") : "directo (sin digipeaters)") + (m.gateway ? " · IGate " + m.gateway : ""))));
+    d.append(el("div", "t", m.direction === "tx" ? "enviado vía " + (path.join(",") || "directo") : "llegó por: " + routeText(m, path)));
   }
   const st = TX_STATUS[m.status];
   if (st) d.append(el("div", "t", st.replace("%", m.tries || 1)));
@@ -529,11 +536,10 @@ async function txCmd(body, okmsg) {
 $("tx-send").onclick = () => {
   const to = $("tx-to").value.trim().toUpperCase(), text = $("tx-text").value;
   if (!to || !text.trim()) { $("tx-info").textContent = "✗ indica destinatario y texto"; return; }
-  if (!confirm(`Transmitir por radio a ${to}:\n\n${text}`)) return;
   txCmd({action: "message", to, text}, "Mensaje enviado a " + to + " (esperando ack)");
 };
-$("tx-status").onclick = () => { const text = $("tx-text").value; if (text.trim() && confirm("Transmitir por radio el estado:\n\n" + text)) txCmd({action: "status", text}, "Estado enviado"); };
-$("tx-pos").onclick = () => { if (confirm("Transmitir por radio tu posición fija (comentario: «" + $("tx-text").value + "»)")) txCmd({action: "position", comment: $("tx-text").value}, "Posición enviada"); };
+$("tx-status").onclick = () => { const text = $("tx-text").value; if (text.trim()) txCmd({action: "status", text}, "Estado enviado"); };
+$("tx-pos").onclick = () => txCmd({action: "position", comment: $("tx-text").value}, "Posición enviada");
 $("tx-text").addEventListener("keydown", e => { if (e.key === "Enter") $("tx-send").click(); });
 async function refreshPending() {
   const nodes = [...document.querySelectorAll('#msglog [data-status="pending"]')]; if (!nodes.length) return;
