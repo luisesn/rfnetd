@@ -34,7 +34,7 @@ class History:
         self.db.execute("PRAGMA synchronous=NORMAL")
         self.db.executescript(SCHEMA)
         cols = {r[1] for r in self.db.execute("PRAGMA table_info(messages)")}
-        for name, ddl in (("status", "TEXT"), ("tries", "INTEGER")):   # envíos propios: pending/sent/acked/rejected/failed
+        for name, ddl in (("status", "TEXT"), ("tries", "INTEGER"), ("copies", "TEXT")):   # envíos propios: pending/sent/acked/rejected/failed
             if name not in cols:
                 self.db.execute("ALTER TABLE messages ADD COLUMN %s %s" % (name, ddl))
         # limpieza de versiones anteriores: las definiciones de telemetría no son mensajes
@@ -94,11 +94,14 @@ class History:
         conv = ("BLN:" + pkt["to"]) if kind == "bulletin" else "|".join(sorted([pkt["src"], pkt["to"]]))
         with self.lock:
             dup = self.db.execute(
-                "SELECT id FROM messages WHERE src=? AND dest=? AND text=? AND IFNULL(msgno,'')=? AND ts>?",
+                "SELECT id, ts, copies FROM messages WHERE src=? AND dest=? AND text=? AND IFNULL(msgno,'')=? AND ts>?",
                 (pkt["src"], pkt["to"], txt, pkt.get("msgno") or "", ts - 600)).fetchone()
             if dup:
                 if pkt.get("dir") != "tx":
-                    self.db.execute("UPDATE messages SET heard=heard+1 WHERE id=?", (dup[0],))
+                    # rutas extra: otras copias del mismo mensaje (digipeaters, IGates) con su retraso
+                    copies = json.loads(dup[2] or "[]")[:19]
+                    copies.append({"dt": round(max(0.0, ts - dup[1]), 1), "path": pkt["path"], "gateway": pkt.get("gateway")})
+                    self.db.execute("UPDATE messages SET heard=heard+1, copies=? WHERE id=?", (json.dumps(copies), dup[0]))
                     self.db.commit()
                 return None
             cur = self.db.execute(

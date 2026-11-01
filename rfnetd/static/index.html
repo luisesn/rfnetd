@@ -434,6 +434,7 @@ function routeText(m, path) {
   const hops = [m.src].concat(m.gateway ? [m.gateway + " (IGate)"] : [], digis);
   return hops.length > 1 ? hops.join(" → ") + " → aquí" : m.src + " → aquí (directo)";
 }
+const delayText = s => s < 1 ? "<1s" : s < 60 ? Math.round(s) + "s" : Math.floor(s / 60) + "m" + String(Math.round(s % 60)).padStart(2, "0") + "s";
 function msgNode(m) {
   const mine = me && m.src === me, d = el("div", "");
   d.style.cssText = "margin:3px 0;padding:3px 6px;border:1px solid #c8c4bc;max-width:80%;" + (mine ? "margin-left:auto;background:#dde6f5;" : "background:#f4f2ec;") + (m.kind === "ack" || m.kind === "rej" ? "opacity:.6;" : "");
@@ -443,6 +444,8 @@ function msgNode(m) {
     let path = []; try { path = JSON.parse(m.path || "[]"); } catch (e) {}
     d.append(el("div", "t", m.direction === "tx" ? "enviado vía " + (path.join(",") || "directo") : "llegó por: " + routeText(m, path)));
   }
+  let copies = []; try { copies = JSON.parse(m.copies || "[]"); } catch (e) {}
+  for (const c of copies) d.append(el("div", "t", "↳ " + routeText({src: m.src, gateway: c.gateway}, c.path || []) + " (" + delayText(c.dt) + ")"));
   const st = TX_STATUS[m.status];
   if (st) d.append(el("div", "t", st.replace("%", m.tries || 1)));
   d.dataset.id = m.id; d.dataset.status = m.status || ""; d.dataset.tries = m.tries || ""; return d;

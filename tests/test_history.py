@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import time
@@ -90,3 +91,21 @@ class HistoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CopiesTests(unittest.TestCase):
+    def test_extra_routes_with_delay(self):
+        tmp = tempfile.mkdtemp()
+        h = History(os.path.join(tmp, "h.db"))
+        base = {"src": "EA1AAA-12", "to": "EA1TST-5", "text": "Test", "msgno": "001", "dir": "rx", "gateway": None}
+        t0 = 1000000.0
+        self.assertTrue(h.add_message(t0, dict(base, path=["WIDE1-1", "WIDE2-2"])))
+        self.assertIsNone(h.add_message(t0 + 2.04, dict(base, path=["EA1DGP-3*", "WIDE2-2"])))
+        self.assertIsNone(h.add_message(t0 + 31, dict(base, path=["TCPIP"], gateway="ED1ZZB-1")))
+        row = h.messages("")[0]
+        self.assertEqual(row["heard"], 3)
+        self.assertEqual(json.loads(row["path"]), ["WIDE1-1", "WIDE2-2"])     # la primera ruta no cambia
+        c = json.loads(row["copies"])
+        self.assertEqual([x["dt"] for x in c], [2.0, 31.0])
+        self.assertEqual(c[0]["path"], ["EA1DGP-3*", "WIDE2-2"])
+        self.assertEqual(c[1]["gateway"], "ED1ZZB-1")
