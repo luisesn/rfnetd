@@ -46,6 +46,23 @@ reconnect_delay_ms = 3000
 # Un canal por línea, en el orden de la radio (el primero es el canal 0): NOMBRE | MHz
 channels =
 
+[tx]
+# Transmisión APRS (mensajes, estado, posición) por el puerto KISS de Direwolf. Exige [web] password.
+enabled = no
+tocall = APZRFN
+path = WIDE1-1
+# Segundos mínimos entre transmisiones y tope por hora (protege de bucles y abusos)
+min_interval = 5
+max_per_hour = 30
+# Espera antes de cada reintento de un mensaje sin ack (3 valores = 3 reintentos)
+retry_seconds = 30, 60, 120
+# Solo transmite si la radio controlada está en esta frecuencia (MHz); 0 = no comprobar
+require_freq = 0
+# Responder con ack a los mensajes recibidos para esta estación
+auto_ack = no
+# Símbolo de la posición manual: tabla + código (/- = casa)
+symbol = /-
+
 [audio]
 enabled = no
 device = default

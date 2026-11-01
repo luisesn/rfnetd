@@ -22,6 +22,7 @@ class Hub:
         self.events = deque(maxlen=n)
         # los ids continúan donde lo dejó el histórico, así son únicos y crecientes entre reinicios
         self.raw_id, self.event_id = history.max_ids()
+        self.tx = None   # Transmitter, se asigna desde __main__
         self.counters = {"aprs_rx": 0, "aprs_tx": 0, "ip_packets": 0, "last_aprs": None}
         self.files = {}
         self._open_files()
@@ -101,6 +102,8 @@ class Hub:
             if pkt.get("type") == "message" and pkt["dir"] != "digi":
                 self.history.add_message(ts or time.time(), pkt)
             self.event("direwolf", "packet", humanize.aprs_packet(pkt), ts, call=pkt["src"])
+            if self.tx and not replay:
+                self.tx.on_packet(pkt)
             return
         res = humanize.direwolf_line(text)
         if res:

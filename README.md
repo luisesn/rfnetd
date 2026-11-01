@@ -60,6 +60,7 @@ opciones guardadas, y lo pasa a Direwolf (`-c {conf}`). Tu fichero nunca se modi
 | `GET /api/events?after=N`, `/api/logs?src=…&after=N` | tiempo real (ids crecientes) |
 | `GET /api/history/events`, `/api/history/raw` | histórico: `before`, `until`, `q`, `limit`, `src` |
 | `GET /api/conversations`, `/api/messages` | mensajes APRS: `conv`, `before`, `after`, `q`, `to` |
+| `GET/POST /api/tx` | transmisión APRS: `{"action":"message\|status\|position",…}` (ver sección Transmitir) |
 | `GET /api/stations` | estaciones con posición, ruta y rastro |
 | `GET/POST /api/radio` | TK-780: `{"action":"channel\|monitor\|scan",…}` |
 | `GET/POST /api/direwolf` | `{"action":"start\|stop\|restart\|apply","options":{…}}` |
@@ -78,8 +79,22 @@ opciones guardadas, y lo pasa a Direwolf (`-c {conf}`). Tu fichero nunca se modi
 python3 -m unittest discover tests     # sin hardware: radio simulada con un pty
 ```
 
+## Transmitir APRS
+
+Con `[tx] enabled = yes` y `[web] password`, la pestaña **Mensajes** permite enviar:
+
+- **Mensajes** a una estación (hasta 67 caracteres, sin acentos ni `{ | ~`): llevan número de mensaje, se
+  reintentan según `retry_seconds` y se marcan como entregado (ack), rechazado o sin confirmación.
+  Los destinos `BLN…`/`NWS…` se envían una vez, sin ack.
+- **Estado** y **posición fija** (la de `[station]`), de un solo disparo.
+
+Cada envío pide confirmación en la web y queda en el histórico. No se transmite si no hay indicativo propio,
+si la radio no está en `require_freq`, está en scan o desconectada, si se supera `max_per_hour` o si no pasa
+`min_interval`. Con `auto_ack = yes` también se confirman los mensajes recibidos para esta estación.
+Los envíos pendientes se pierden si se reinicia el servicio (quedan marcados como fallidos).
+
 ## Limitaciones
 
-Telemetría y meteorología se muestran como comentario; no se envían mensajes APRS desde la web;
+Telemetría y meteorología se muestran como comentario; no hay mensajes multitrama ni cifrado;
 el mapa necesita Internet en el navegador; Squelch y Scan de la radio solo se conocen tras conmutarlos
 (la radio no los informa).

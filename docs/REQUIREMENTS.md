@@ -145,7 +145,18 @@ Comportamiento a replicar (script original):
 - **RF-37** Las copias que Direwolf marca como digipeadas (`[0H]`) o transmitidas (`[0L]`) por esta estación no
   actualizan el mapa ni los contadores de recepción. Las definiciones de telemetría no se tratan como mensajes.
 
-### 3.12 Interfaz (v0.2)
+### 3.12 Transmisión APRS (v0.3)
+
+- **RF-39** Con `[tx] enabled` y contraseña web, se pueden enviar mensajes, estados y la posición fija como tramas
+  AX.25 UI por el puerto KISS de Direwolf (que hace CSMA y PTT).
+- **RF-40** Los mensajes llevan número y se reintentan (`retry_seconds`) hasta recibir ack/rej del destinatario;
+  el estado (pendiente, entregado, rechazado, fallido) se guarda y se ve en la conversación.
+- **RF-41** Protecciones: indicativo propio válido, texto ASCII sin `{ | ~` (se quitan acentos), 67 caracteres,
+  `min_interval`, `max_per_hour`, y bloqueo si la radio controlada está desconectada, en scan o fuera de `require_freq`.
+- **RF-42** `auto_ack` opcional: confirma los mensajes recibidos para esta estación (una vez por 20 s y mensaje).
+- **RF-43** Toda transmisión exige Basic auth + cabecera anti-CSRF, pide confirmación en la UI y se registra.
+
+### 3.13 Interfaz (v0.2)
 
 - **RF-38** Estilo visual «WinBox legacy» (ventana gris con bordes biselados, barra de título azul, pestañas, LED,
   barra de estado) igual que la aplicación del TK-780.
@@ -212,8 +223,7 @@ tubería).
   paquete es equivalente. Se puede cambiar el comando en la configuración.
 - Los mensajes APRS se leen de la salida de Direwolf (que también registra lo
   recibido por IGate), no de una segunda conexión KISS/AGW.
-- **Fuera de alcance (v0.2):** TLS, usuarios múltiples, envío de mensajes APRS
-  desde la interfaz, mapas sin conexión, telemetría y meteorología detalladas
+- **Fuera de alcance:** TLS, usuarios múltiples, mensajes multitrama, mapas sin conexión, telemetría y meteorología detalladas
   (se muestran como comentario), IPv6.
 
 ## 7. Criterios de aceptación

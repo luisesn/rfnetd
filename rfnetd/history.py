@@ -33,6 +33,10 @@ class History:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=NORMAL")
         self.db.executescript(SCHEMA)
+        cols = {r[1] for r in self.db.execute("PRAGMA table_info(messages)")}
+        for name, ddl in (("status", "TEXT"), ("tries", "INTEGER")):   # envíos propios: pending/sent/acked/rejected/failed
+            if name not in cols:
+                self.db.execute("ALTER TABLE messages ADD COLUMN %s %s" % (name, ddl))
         # limpieza de versiones anteriores: las definiciones de telemetría no son mensajes
         self.db.execute("DELETE FROM messages WHERE text GLOB 'PARM.*' OR text GLOB 'UNIT.*' "
                         "OR text GLOB 'EQNS.*' OR text GLOB 'BITS.*'")
@@ -81,8 +85,9 @@ class History:
             return self.db.execute("SELECT COUNT(*) FROM raw").fetchone()[0] == 0
 
     # --- mensajes APRS ---
-    def add_message(self, ts, pkt):
-        """Guarda un mensaje; las copias repetidas (digipeaters, reintentos) solo suben 'heard'."""
+    def add_message(self, ts, pkt, status=None, tries=None):
+        """Guarda un mensaje; las copias repetidas (digipeaters, reintentos) solo suben 'heard'.
+        Los propios (dir 'tx') no cuentan como copias: el eco [0L] de Direwolf no es otra recepción."""
         txt = pkt["text"]
         kind = "ack" if txt.startswith("ack") else "rej" if txt.startswith("rej") else \
                "bulletin" if BULLETIN_RE.match(pkt["to"]) else "msg"
@@ -92,15 +97,52 @@ class History:
                 "SELECT id FROM messages WHERE src=? AND dest=? AND text=? AND IFNULL(msgno,'')=? AND ts>?",
                 (pkt["src"], pkt["to"], txt, pkt.get("msgno") or "", ts - 600)).fetchone()
             if dup:
-                self.db.execute("UPDATE messages SET heard=heard+1 WHERE id=?", (dup[0],))
-                self.db.commit()
+                if pkt.get("dir") != "tx":
+                    self.db.execute("UPDATE messages SET heard=heard+1 WHERE id=?", (dup[0],))
+                    self.db.commit()
                 return None
             cur = self.db.execute(
-                "INSERT INTO messages(ts,src,dest,text,msgno,kind,direction,gateway,path,conv) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO messages(ts,src,dest,text,msgno,kind,direction,gateway,path,conv,status,tries) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ts, pkt["src"], pkt["to"], txt, pkt.get("msgno"), kind, pkt["dir"], pkt.get("gateway"),
-                 json.dumps(pkt["path"]), conv))
+                 json.dumps(pkt["path"]), conv, status, tries))
             self.db.commit()
             return cur.lastrowid
+
+    def set_status(self, id_, status):
+        with self.lock:
+            self.db.execute("UPDATE messages SET status=? WHERE id=?", (status, id_))
+            self.db.commit()
+
+    def set_tries(self, id_, tries):
+        with self.lock:
+            self.db.execute("UPDATE messages SET tries=? WHERE id=?", (tries, id_))
+            self.db.commit()
+
+    def settle_tx(self, peer, msgno, status):
+        """ack/rej recibido de 'peer' para nuestro mensaje msgno -> id del mensaje o None."""
+        with self.lock:
+            r = self.db.execute("SELECT id FROM messages WHERE direction='tx' AND dest=? AND msgno=? "
+                                "AND status='pending' ORDER BY id DESC LIMIT 1", (peer, msgno)).fetchone()
+            if r:
+                self.db.execute("UPDATE messages SET status=? WHERE id=?", (status, r[0]))
+                self.db.commit()
+            return r[0] if r else None
+
+    def fail_pending(self):
+        with self.lock:
+            n = self.db.execute("UPDATE messages SET status='failed' WHERE status='pending'").rowcount
+            self.db.commit()
+            return n
+
+    def messages_by_ids(self, ids):
+        ids = [int(i) for i in ids][:200]
+        if not ids:
+            return []
+        with self.lock:
+            cur = self.db.execute("SELECT * FROM messages WHERE id IN (%s)" % ",".join("?" * len(ids)), ids)
+            names = [d[0] for d in cur.description]
+            return [dict(zip(names, r)) for r in cur.fetchall()]
 
     # --- consultas paginadas (id descendente, se devuelven en orden cronológico) ---
     def _page(self, table, cols, where, args, before, until, q, limit, qcols):

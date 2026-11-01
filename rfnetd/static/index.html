@@ -164,7 +164,14 @@ table.kv { border-collapse: collapse; } table.kv td { padding: 2px 10px 2px 0; }
           <label><input type="checkbox" id="msgme"> solo para mí</label><label><input type="checkbox" id="msgack"> ver ack</label>
           <button id="msgall">Ver todos</button></div>
         <div class="logbox sunken" id="msglog"></div>
-        <div class="row unit">Se guardan todos los mensajes APRS recibidos (las copias repetidas se agrupan en «×N»). Solo lectura: no se envían mensajes.</div>
+        <div class="row" id="txbox" style="display:none">
+          <input type="text" id="tx-to" placeholder="Para (indicativo)" style="width:120px" maxlength="9" autocapitalize="characters">
+          <input type="text" id="tx-text" placeholder="mensaje APRS (sin acentos ni { | ~)" style="flex:1;min-width:120px" maxlength="67">
+          <button id="tx-send">Enviar mensaje</button>
+          <button id="tx-status" title="Envía el texto como estado (>)">Estado</button>
+          <button id="tx-pos" title="Envía tu posición fija; el texto es el comentario">Posición</button>
+        </div>
+        <div class="row unit" id="tx-info"></div>
       </div>
     </div>
 
@@ -413,13 +420,18 @@ const rawFeed = makeFeed({ box: $("rawlog"), render: r => row(r, null),
 
 // ---- mensajes APRS ----
 let conv = "", convMeta = null, me = "", msgOldest = 0, msgNewest = 0, msgLoading = false, msgDone = false, convSig = "";
+const TX_STATUS = {pending: "⏳ enviado (%×), esperando confirmación…", sent: "✓ enviado", acked: "✓ entregado (confirmado)",
+  rejected: "✗ rechazado por el destinatario", failed: "✗ sin confirmación tras %× envíos"};
+let txInfo = null;
 const peerLabel = c => c.bulletin ? "Boletín " + c.peers[0] : c.peers.join(" ↔ ");
 function msgNode(m) {
   const mine = me && m.src === me, d = el("div", "");
   d.style.cssText = "margin:3px 0;padding:3px 6px;border:1px solid #c8c4bc;max-width:80%;" + (mine ? "margin-left:auto;background:#dde6f5;" : "background:#f4f2ec;") + (m.kind === "ack" || m.kind === "rej" ? "opacity:.6;" : "");
   const head = el("div", "t", new Date(m.ts * 1000).toLocaleString() + "  " + m.src + " → " + m.dest + (m.heard > 1 ? "  ×" + m.heard : "") + (m.gateway ? "  (IGate " + m.gateway + ")" : "") + (m.msgno ? "  #" + m.msgno : ""));
   d.append(head, el("div", "", m.kind === "ack" ? "✓ confirmado " + m.text.slice(3) : m.kind === "rej" ? "✗ rechazado " + m.text.slice(3) : m.text));
-  d.dataset.id = m.id; return d;
+  const st = TX_STATUS[m.status];
+  if (st) d.append(el("div", "t", st.replace("%", m.tries || 1)));
+  d.dataset.id = m.id; d.dataset.status = m.status || ""; d.dataset.tries = m.tries || ""; return d;
 }
 const msgParams = extra => qs(Object.assign({conv, q: $("msgq").value.trim(), to: $("msgme").checked ? me : ""}, extra));
 async function loadConvs() {
@@ -435,6 +447,8 @@ async function loadConvs() {
 async function selectConv(c, title) {
   conv = c; $("thread-title").textContent = c ? title : "Todos los mensajes";
   document.querySelectorAll("#convlist .st").forEach(n => n.classList.toggle("sel", n.dataset.conv === c));
+  const meta = c && !c.startsWith("BLN:") ? c.split("|").find(x => x !== me) : "";
+  if (meta) $("tx-to").value = meta;
   const box = $("msglog"); box.replaceChildren(); msgOldest = msgNewest = 0; msgDone = false; await olderMsgs(true);
 }
 async function olderMsgs(initial) {
@@ -452,9 +466,42 @@ async function olderMsgs(initial) {
     if (d.rows.length) { msgOldest = d.rows[0].id; msgNewest = Math.max(msgNewest, d.rows[d.rows.length - 1].id); }
   } finally { msgLoading = false; }
 }
+async function loadTx() {
+  txInfo = await getJSON("/api/tx");
+  const on = txInfo.enabled && txInfo.control;
+  $("txbox").style.display = on ? "" : "none";
+  $("tx-info").textContent = !txInfo.control ? "Solo lectura: define [web] password para poder transmitir."
+    : !txInfo.enabled ? "Transmisión desactivada ([tx] enabled en rfnetd.conf). Se guardan los mensajes APRS recibidos; las copias repetidas se agrupan en «×N»."
+    : (txInfo.blocked ? "⚠ No se puede transmitir ahora: " + txInfo.blocked + ". " : "") +
+      `Sale como ${txInfo.me}>${txInfo.tocall}${txInfo.path.map(p => "," + p).join("")} · ${txInfo.sent_last_hour}/${txInfo.max_per_hour} transmisiones esta hora` +
+      (txInfo.pending.length ? ` · ${txInfo.pending.length} esperando ack` : "") + (txInfo.auto_ack ? " · ack automático" : "");
+  [ "tx-send", "tx-status", "tx-pos" ].forEach(i => $(i).disabled = !!txInfo.blocked);
+}
+async function txCmd(body, okmsg) {
+  const btn = [$("tx-send"), $("tx-status"), $("tx-pos")]; btn.forEach(b => b.disabled = true);
+  try { await post("/api/tx", body); $("tx-info").textContent = okmsg; if (body.action === "message") $("tx-text").value = ""; await liveMsgs(); }
+  catch (e) { $("tx-info").textContent = "✗ " + e.message; }
+  finally { btn.forEach(b => b.disabled = false); setTimeout(() => loadTx().catch(() => {}), 4000); }
+}
+$("tx-send").onclick = () => {
+  const to = $("tx-to").value.trim().toUpperCase(), text = $("tx-text").value;
+  if (!to || !text.trim()) { $("tx-info").textContent = "✗ indica destinatario y texto"; return; }
+  if (!confirm(`Transmitir por radio a ${to}:\n\n${text}`)) return;
+  txCmd({action: "message", to, text}, "Mensaje enviado a " + to + " (esperando ack)");
+};
+$("tx-status").onclick = () => { const text = $("tx-text").value; if (text.trim() && confirm("Transmitir por radio el estado:\n\n" + text)) txCmd({action: "status", text}, "Estado enviado"); };
+$("tx-pos").onclick = () => { if (confirm("Transmitir por radio tu posición fija (comentario: «" + $("tx-text").value + "»)")) txCmd({action: "position", comment: $("tx-text").value}, "Posición enviada"); };
+$("tx-text").addEventListener("keydown", e => { if (e.key === "Enter") $("tx-send").click(); });
+async function refreshPending() {
+  const nodes = [...document.querySelectorAll('#msglog [data-status="pending"]')]; if (!nodes.length) return;
+  const d = await getJSON("/api/messages?ids=" + nodes.map(n => n.dataset.id).join(","));
+  for (const m of d.rows) { const n = $("msglog").querySelector(`[data-id="${m.id}"]`); if (n && (n.dataset.status !== (m.status || "") || n.dataset.tries !== String(m.tries || ""))) n.replaceWith(msgNode(m)); }
+}
 async function liveMsgs() {
+  loadTx().catch(() => {});
   if (!msgNewest && !$("msglog").childElementCount) return selectConv("", "Todos los mensajes");
   const d = await getJSON("/api/messages?" + qs({after: msgNewest, limit: 100})); me = d.me;
+  await refreshPending().catch(() => {});
   if (!d.rows.length) return;
   const box = $("msglog"), stick = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
   for (const m of d.rows) {

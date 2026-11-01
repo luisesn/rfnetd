@@ -14,12 +14,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import dwconf
+from .tx import TxError
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 MAX_BODY = 16384
 
 
-def make_server(cfg, hub, store, supervisor, radio, audio, controls, history):
+def make_server(cfg, hub, store, supervisor, radio, audio, controls, history, tx):
     password = cfg.get("web", "password")
     user = cfg.get("web", "user")
     control = bool(password)
@@ -126,7 +127,12 @@ def make_server(cfg, hub, store, supervisor, radio, audio, controls, history):
                                                           q.get("q", "")[:100], min(num("limit", 200), 1000))})
             if u.path == "/api/conversations":
                 return self._json({"rows": history.conversations()})
+            if u.path == "/api/tx":
+                return self._json(dict(tx.status(), control=control))
             if u.path == "/api/messages":
+                if q.get("ids"):
+                    ids = [i for i in q["ids"].split(",") if i.isdigit()]
+                    return self._json({"rows": history.messages_by_ids(ids)})
                 return self._json({"rows": history.messages(q.get("conv", ""), num("before"), num("after"),
                                                             q.get("q", "")[:100], min(num("limit", 100), 500), q.get("to", "")[:12]),
                                    "me": cfg.get("station", "callsign").upper()})
@@ -190,6 +196,10 @@ def make_server(cfg, hub, store, supervisor, radio, audio, controls, history):
                     return self._radio(body)
                 if route == "/api/direwolf":
                     return self._direwolf(body)
+                if route == "/api/tx":
+                    return self._tx(body)
+            except TxError as e:
+                return self._err(409, str(e))
             except (ValueError, KeyError, TypeError) as e:
                 return self._err(400, str(e))
             except OSError as e:
@@ -210,6 +220,20 @@ def make_server(cfg, hub, store, supervisor, radio, audio, controls, history):
                 raise ValueError("acción desconocida")
             hub.log_src("radio", "Orden desde la web: %s %s" % (act, {k: v for k, v in b.items() if k != "action"}))
             self._json(radio.snapshot())
+
+        def _tx(self, b):
+            act = b.get("action")
+            who = self.client_address[0]
+            if act == "message":
+                r = tx.send_message(str(b.get("to", "")), str(b.get("text", "")))
+            elif act == "status":
+                r = tx.send_status(str(b.get("text", "")))
+            elif act == "position":
+                r = tx.send_position(str(b.get("comment", "")))
+            else:
+                raise ValueError("acción desconocida")
+            hub.log("Transmisión pedida desde la web (%s): %s" % (who, act))
+            self._json(dict(tx.status(), result=r))
 
         def _direwolf(self, b):
             act = b.get("action")

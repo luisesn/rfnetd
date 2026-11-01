@@ -11,6 +11,7 @@ from .pipeline import Hub
 from .radio import Radio
 from .store import StationStore
 from .supervisor import Supervisor
+from .tx import Transmitter
 from .web import make_server
 
 
@@ -32,8 +33,9 @@ def main():
     controls = Controls(os.path.join(data_dir, "controls.json"))
     radio = Radio(cfg, hub)
     audio = Streamer(cfg, hub)
+    tx = hub.tx = Transmitter(cfg, hub, history, radio)
     sup = Supervisor(cfg, hub, controls)
-    httpd = make_server(cfg, hub, store, sup, radio, audio, controls, history)
+    httpd = make_server(cfg, hub, store, sup, radio, audio, controls, history, tx)
     stop = threading.Event()
 
     if first_run:
@@ -58,10 +60,12 @@ def main():
     if not args.no_supervisor:
         sup.start()
         radio.start()
+        tx.start()
     stop.wait()
     hub.log("Parando rfnetd")
     sup.shutdown()
     radio.shutdown()
+    tx.shutdown()
     audio.shutdown()
     httpd.shutdown()
     store.save()
