@@ -20,8 +20,11 @@ SIMPLE = {
     "SLOTTIME": ("slottime", "SLOTTIME (×10 ms)", "int", (0, 255)),
     "DWAIT": ("dwait", "DWAIT (×10 ms)", "int", (0, 255)),
     "FIX_BITS": ("fix_bits", "Corrección de bits (FIX_BITS)", "choice", ["0", "1", "2", "3", "4", "5", "6"]),
-    "DEDUP": ("dedup", "Duplicados: segundos (DEDUP)", "int", (0, 600)),
+    "DEDUPE": ("dedup", "Duplicados: segundos (DEDUPE)", "int", (0, 600)),
 }
+LEGACY = {"DEDUP": "DEDUPE"}   # Direwolf 1.6 no reconoce DEDUP; se corrige en la copia generada
+FILTER_RE = re.compile(r"^[A-Za-z0-9/!&|()*., _-]{0,120}$")
+FILTER_FIELD = ("digi_filter", "Filtro del digipeater (FILTER 0 0), p. ej. ! b/EA1DGP-3", "filter", None)
 GROUPS = {  # clave -> directivas que se comentan cuando está desactivado
     "beacon": ("Baliza APRS (PBEACON)", {"PBEACON"}),
     "digipeat": ("Digipeater (DIGIPEAT)", {"DIGIPEAT", "CDIGIPEAT"}),
@@ -62,6 +65,8 @@ def parse_base(text):
     vals = {}
     for key, (opt, _, _, _) in SIMPLE.items():
         i = _first_line(lines, key)
+        if i is None and key in LEGACY.values():
+            i = _first_line(lines, next(k for k, v in LEGACY.items() if v == key))
         if i is not None:
             vals[opt] = lines[i].split()[1] if len(lines[i].split()) > 1 else ""
     avail = {}
@@ -70,6 +75,8 @@ def parse_base(text):
         off = [ln for ln in _commented_lines(lines) if _directive(ln) in keys]
         avail[g] = bool(present or off)
         vals[g] = bool(present)
+    vals["digi_filter"] = next((ln.split(None, 3)[3] for ln in lines if _directive(ln) == "FILTER"
+                                and ln.split()[1:3] == ["0", "0"] and len(ln.split()) > 3), "")
     b = _first_line(lines, "PBEACON")
     src = lines[b] if b is not None else next((ln for ln in _commented_lines(lines) if _directive(ln) == "PBEACON"), "")
     for opt, (_, field, kind, _) in BEACON_FIELDS.items():
@@ -88,6 +95,8 @@ def schema(avail):
         if g == "beacon":
             for opt, (lbl, _, kind, lim) in BEACON_FIELDS.items():
                 out.append({"key": opt, "label": lbl, "type": kind, "limits": lim, "depends": "beacon"})
+        if g == "digipeat":
+            out.append({"key": FILTER_FIELD[0], "label": FILTER_FIELD[1], "type": "filter", "limits": None, "depends": "digipeat"})
     return out
 
 
@@ -119,6 +128,11 @@ def validate(opts):
             if not VIA_RE.match(str(v)):
                 raise ValueError("path no válido")
             clean[key] = str(v)
+        elif t == "filter":
+            v = str(v).strip()
+            if not FILTER_RE.match(v):
+                raise ValueError("filtro no válido (solo letras, cifras y / ! & | ( ) * , . _ -)")
+            clean[key] = v
         elif t == "text":
             v = str(v)
             if len(v) > 60 or any(c in v for c in '"\r\n\\') or not v.isprintable():
@@ -134,6 +148,9 @@ def generate(base_text, opts, audio_in=None):
         if i is not None:
             parts = lines[i].split()
             lines[i] = "ADEVICE %s %s" % (audio_in, parts[2] if len(parts) > 2 else parts[1])
+    for i, ln in enumerate(lines):   # DEDUP -> DEDUPE (la antigua da «Unrecognized command»)
+        if _directive(ln) in LEGACY:
+            lines[i] = LEGACY[_directive(ln)] + ln[len(_directive(ln)):]
     # 1) directivas simples: sustituir el primer argumento, o añadir al final
     for key, (opt, _, _, _) in SIMPLE.items():
         if opt not in opts:
@@ -154,6 +171,10 @@ def generate(base_text, opts, audio_in=None):
                 lines[i] = ln[len(MARK):]
             elif not opts[g] and _directive(ln) in keys:
                 lines[i] = MARK + ln
+    if "digi_filter" in opts:   # un solo FILTER 0 0; vacío = sin filtro
+        lines = [ln for ln in lines if not (_directive(ln) == "FILTER" and ln.split()[1:3] == ["0", "0"])]
+        if opts["digi_filter"]:
+            lines.append("FILTER 0 0 %s" % opts["digi_filter"])
     # 3) campos de la baliza (solo la primera línea PBEACON activa)
     b = _first_line(lines, "PBEACON")
     if b is not None:

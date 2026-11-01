@@ -37,7 +37,7 @@ class DwConfTests(unittest.TestCase):
         self.assertFalse(vals["igate"] or vals["beacon"])
         self.assertTrue(vals["digipeat"])
         on = dwconf.generate(off, {"igate": True, "beacon": True})
-        self.assertEqual(on, BASE)
+        self.assertEqual(on, BASE.replace("\nDEDUP 30", "\nDEDUPE 30"))   # único cambio: DEDUP -> DEDUPE
 
     def test_audio_in_keeps_output_device(self):
         out = dwconf.generate(BASE, {}, audio_in="rf_cap")
@@ -63,3 +63,33 @@ class DwConfTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DigiFilterTests(unittest.TestCase):
+    def test_filter_added_replaced_and_removed(self):
+        out = dwconf.generate(BASE, {"digi_filter": "! b/EA1DGP-3"})
+        self.assertEqual([l for l in out.splitlines() if l.startswith("FILTER")], ["FILTER 0 0 ! b/EA1DGP-3"])
+        out = dwconf.generate(out, {"digi_filter": "! b/EA1AAA | b/EA1BBB"})
+        self.assertEqual([l for l in out.splitlines() if l.startswith("FILTER")], ["FILTER 0 0 ! b/EA1AAA | b/EA1BBB"])
+        self.assertEqual(dwconf.parse_base(out)[0]["digi_filter"], "! b/EA1AAA | b/EA1BBB")
+        out = dwconf.generate(out, {"digi_filter": ""})
+        self.assertNotIn("FILTER", out)
+
+    def test_other_filters_untouched(self):
+        base = BASE + "FILTER IG 0 t/m\nFILTER 0 1 t/wn\n"
+        out = dwconf.generate(base, {"digi_filter": "! b/X"})
+        self.assertIn("FILTER IG 0 t/m", out)
+        self.assertIn("FILTER 0 1 t/wn", out)
+
+    def test_validation(self):
+        self.assertEqual(dwconf.validate({"digi_filter": " ! b/EA1DGP-3 "}), {"digi_filter": "! b/EA1DGP-3"})
+        for bad in ("a\nIGLOGIN x y", 'a"b', "a;b", "x" * 130):
+            with self.assertRaises(ValueError):
+                dwconf.validate({"digi_filter": bad})
+
+    def test_dedup_renamed_for_direwolf_1_6(self):
+        out = dwconf.generate(BASE, {})
+        self.assertIn("DEDUPE 30", out)
+        self.assertNotIn("\nDEDUP 30", out)
+        self.assertEqual(dwconf.parse_base(BASE)[0]["dedup"], "30")
+        self.assertIn("DEDUPE 60", dwconf.generate(BASE, {"dedup": 60}))
