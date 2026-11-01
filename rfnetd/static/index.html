@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rfnetd</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { --bg:#f6f7f9; --fg:#1b1f24; --muted:#667085; --card:#fff; --line:#d9dde3; --ok:#1a7f37; --bad:#c62828; --warn:#b26a00; --accent:#1f5fbf; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --fg:#e6e8eb; --muted:#9aa4b2; --card:#1c2128; --line:#2f3640; --ok:#4cc26a; --bad:#ff6b6b; --warn:#f0b04a; --accent:#6ea8ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, sans-serif; display:flex; flex-direction:column; height:100vh; }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:8px 12px; display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; }
+  header h1 { font-size:16px; margin:0; }
+  .pill { padding:1px 8px; border-radius:10px; border:1px solid var(--line); font-size:12px; }
+  .ok { color:var(--ok); border-color:var(--ok); } .bad { color:var(--bad); border-color:var(--bad); } .warn { color:var(--warn); }
+  nav { display:flex; gap:4px; background:var(--card); border-bottom:1px solid var(--line); padding:0 8px; }
+  nav button { border:0; background:none; color:var(--muted); padding:8px 12px; cursor:pointer; font:inherit; border-bottom:2px solid transparent; }
+  nav button.on { color:var(--fg); border-bottom-color:var(--accent); }
+  main { flex:1; min-height:0; position:relative; }
+  section { position:absolute; inset:0; display:none; }
+  section.on { display:flex; }
+  #map { flex:1; min-width:0; }
+  #side { width:300px; max-width:40%; border-left:1px solid var(--line); background:var(--card); overflow:auto; }
+  #side h2 { font-size:13px; margin:0; padding:8px 10px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--card); }
+  .st { padding:6px 10px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .st:hover, .st.sel { background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  .st b { font-weight:600; } .st small { color:var(--muted); display:block; }
+  .tools { padding:6px 10px; border-bottom:1px solid var(--line); font-size:12px; }
+  .panel { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .bar { padding:6px 10px; display:flex; gap:10px; align-items:center; background:var(--card); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .bar input[type=text], .bar select { font:inherit; padding:3px 6px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:4px; }
+  .log { flex:1; overflow:auto; padding:6px 10px; font:12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  .log div { white-space:pre-wrap; word-break:break-word; border-bottom:1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+  .log .t { color:var(--muted); } .log .src { color:var(--accent); } .log .error { color:var(--bad); } .log .warn { color:var(--warn); }
+  .own div { font-weight:700; }
+</style>
+</head>
+<body>
+<header>
+  <h1>rfnetd <span id="call" class="pill"></span></h1>
+  <span id="state" class="pill"></span>
+  <span id="procs"></span>
+  <span id="cnt" style="color:var(--muted)"></span>
+</header>
+<nav id="tabs">
+  <button data-t="map" class="on">Mapa</button>
+  <button data-t="events">Eventos</button>
+  <button data-t="logs">Logs</button>
+</nav>
+<main>
+  <section id="map-s" class="on">
+    <div id="map"></div>
+    <div id="side">
+      <div class="tools"><label><input type="checkbox" id="allroutes"> Dibujar rutas de todas</label></div>
+      <h2>Estaciones <span id="nst"></span></h2>
+      <div id="stlist"></div>
+    </div>
+  </section>
+  <section id="events-s">
+    <div class="panel">
+      <div class="bar">
+        <input type="text" id="evfilter" placeholder="filtrar…">
+        <select id="evsrc"><option value="">todas las fuentes</option><option>direwolf</option><option>tncattach</option><option>capture</option><option>rfnetd</option></select>
+        <label><input type="checkbox" id="evauto" checked> autoescroll</label>
+        <label><input type="checkbox" id="evpause"> pausa</label>
+      </div>
+      <div class="log" id="evlog"></div>
+    </div>
+  </section>
+  <section id="logs-s">
+    <div class="panel">
+      <div class="bar">
+        <select id="logsrc"><option>direwolf</option><option>tncattach</option><option value="capture">tcpdump</option><option>rfnetd</option></select>
+        <input type="text" id="logfilter" placeholder="filtrar…">
+        <label><input type="checkbox" id="logauto" checked> autoescroll</label>
+        <label><input type="checkbox" id="logpause"> pausa</label>
+      </div>
+      <div class="log" id="rawlog"></div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+"use strict";
+// Todo el texto que llega por radio es no fiable: se inserta solo con textContent.
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+const hhmmss = ts => new Date(ts * 1000).toLocaleTimeString();
+const ago = s => s < 90 ? Math.round(s) + " s" : s < 5400 ? Math.round(s / 60) + " min" : (s / 3600).toFixed(1) + " h";
+const getJSON = async url => (await fetch(url, {cache: "no-store"})).json();
+
+// ---- pestañas ----
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll("main section").forEach(s => s.classList.toggle("on", s.id === b.dataset.t + "-s"));
+  if (b.dataset.t === "map") setTimeout(() => map.invalidateSize(), 50);
+});
+
+// ---- estado ----
+let own = null;
+async function pollStatus() {
+  try {
+    const s = await getJSON("/api/status");
+    $("call").textContent = s.station.callsign;
+    if (!own && (s.station.lat || s.station.lon)) { own = s.station; drawOwn(); map.setView([own.lat, own.lon], 9); }
+    const st = $("state"); st.textContent = s.state; st.className = "pill " + (s.state === "activo" ? "ok" : "warn");
+    const pr = $("procs"); pr.replaceChildren();
+    for (const [n, p] of Object.entries(s.procs)) {
+      const e = el("span", "pill " + (p.alive ? "ok" : "bad"), n + (p.alive ? " ✓" : " ✗") + (p.restarts ? " ↻" + p.restarts : ""));
+      e.style.marginRight = "4px"; pr.appendChild(e);
+    }
+    const ifc = el("span", "pill " + (s.interface_up ? "ok" : "bad"), s.interface + (s.interface_up ? " arriba" : " abajo"));
+    pr.appendChild(ifc);
+    const c = s.counters;
+    $("cnt").textContent = `APRS rx ${c.aprs_rx} · tx ${c.aprs_tx} · IP ${c.ip_packets}` + (c.last_aprs ? ` · último APRS hace ${ago(s.now - c.last_aprs)}` : "");
+  } catch (e) { $("state").textContent = "sin conexión"; $("state").className = "pill bad"; }
+}
+
+// ---- logs incrementales ----
+function makeFeed(box, url, render, opts) {
+  let after = 0, key = "";
+  return async function poll() {
+    if (opts.paused()) return;
+    const k = opts.key(); if (k !== key) { key = k; after = 0; box.replaceChildren(); }
+    const d = await getJSON(url(after));
+    if (d.last < after) { after = 0; box.replaceChildren(); return; }
+    for (const r of d.rows) {
+      after = Math.max(after, r.seq);
+      const node = render(r);
+      node.dataset.f = node.textContent.toLowerCase();
+      if (r.src) node.dataset.src = r.src;
+      node.hidden = !opts.match(node);
+      box.appendChild(node);
+    }
+    while (box.childElementCount > 3000) box.removeChild(box.firstChild);
+    if (d.rows.length && opts.auto()) box.scrollTop = box.scrollHeight;
+  };
+}
+const matcher = (input, srcSel) => n => (!input.value || n.dataset.f.includes(input.value.toLowerCase())) && (!srcSel || !srcSel.value || n.dataset.src === srcSel.value);
+function applyFilter(box, ctl, match) { ctl.forEach(c => c.addEventListener("input", () => { for (const n of box.children) n.hidden = !match(n); })); }
+
+const row = (r, src) => { const d = el("div", r.level || ""); d.append(el("span", "t", hhmmss(r.ts) + " "), ...(src ? [el("span", "src", "[" + src + "] ")] : []), document.createTextNode(r.text)); return d; };
+const evFeed = makeFeed($("evlog"), a => "/api/events?after=" + a, r => row(r, r.src), {
+  paused: () => $("evpause").checked, auto: () => $("evauto").checked, key: () => "", match: matcher($("evfilter"), $("evsrc")) });
+applyFilter($("evlog"), [$("evfilter"), $("evsrc")], matcher($("evfilter"), $("evsrc")));
+const rawFeed = makeFeed($("rawlog"), a => "/api/logs?src=" + $("logsrc").value + "&after=" + a, r => row(r, null), {
+  paused: () => $("logpause").checked, auto: () => $("logauto").checked, key: () => $("logsrc").value, match: matcher($("logfilter"), null) });
+applyFilter($("rawlog"), [$("logfilter")], matcher($("logfilter"), null));
+
+// ---- mapa ----
+const map = L.map("map").setView([40, -3.7], 5);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 18, attribution: "© OpenStreetMap contributors"}).addTo(map);
+const markers = {}, routeLayer = L.layerGroup().addTo(map), trackLayer = L.layerGroup().addTo(map);
+let ownMarker = null, selected = null, stations = {};
+
+function drawOwn() {
+  if (ownMarker) ownMarker.remove();
+  ownMarker = L.circleMarker([own.lat, own.lon], {radius: 9, color: "#c62828", fillColor: "#ff5252", fillOpacity: .9, weight: 3})
+    .bindTooltip(own.callsign + " (esta estación)").addTo(map);
+}
+function popupFor(s) {
+  const d = el("div");
+  d.append(el("b", "", s.call), el("br"));
+  const lines = [
+    s.symbol_name, `${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}`,
+    s.speed_kn ? `${Math.round(s.speed_kn * 1.852)} km/h` + (s.course !== undefined ? `, rumbo ${s.course}°` : "") : null,
+    s.comment ? "«" + s.comment.trim() + "»" : null,
+    `${s.count} paquetes, hace ${ago(Date.now() / 1000 - s.last_heard)}`,
+    "ruta: " + s.route.join(" → ") + " → " + (own ? own.callsign : "yo"),
+  ].filter(Boolean);
+  for (const l of lines) d.append(el("div", "", l));
+  return d;
+}
+function routePoints(s) {
+  const pts = [], missing = [];
+  for (const c of s.route) {
+    const st = stations[c];
+    if (st && st.lat !== undefined) pts.push([st.lat, st.lon]); else if (c !== s.call && c !== s.via) missing.push(c);
+  }
+  if (s.lat !== undefined) pts[0] = [s.lat, s.lon];
+  if (own) pts.push([own.lat, own.lon]);
+  return {pts, missing};
+}
+function drawRoutes() {
+  routeLayer.clearLayers(); trackLayer.clearLayers();
+  const list = $("allroutes").checked ? Object.values(stations) : (selected && stations[selected] ? [stations[selected]] : []);
+  for (const s of list) {
+    if (s.lat === undefined) continue;
+    const {pts, missing} = routePoints(s);
+    if (pts.length > 1) L.polyline(pts, {color: s.call === selected ? "#1f5fbf" : "#888", weight: s.call === selected ? 3 : 1.5, dashArray: "6 6", opacity: .8})
+      .bindTooltip(missing.length ? "sin posición: " + missing.join(", ") : "ruta").addTo(routeLayer);
+  }
+  const s = stations[selected];
+  if (s && s.track && s.track.length > 1) L.polyline(s.track.map(p => [p[0], p[1]]), {color: "#d9822b", weight: 2}).addTo(trackLayer);
+}
+function select(call, pan) {
+  selected = call; drawRoutes();
+  document.querySelectorAll(".st").forEach(n => n.classList.toggle("sel", n.dataset.call === call));
+  const s = stations[call]; if (pan && s && s.lat !== undefined) map.panTo([s.lat, s.lon]);
+}
+async function pollStations() {
+  const d = await getJSON("/api/stations");
+  stations = {}; for (const s of d.stations) { stations[s.call] = s; s.symbol_name = s.symbol_name || ""; }
+  const list = d.stations.sort((a, b) => b.last_heard - a.last_heard);
+  $("nst").textContent = "(" + list.length + ")";
+  const box = $("stlist"); box.replaceChildren();
+  for (const s of list) {
+    const row = el("div", "st" + (s.call === selected ? " sel" : "")); row.dataset.call = s.call;
+    row.append(el("b", "", s.call), el("small", "", (s.lat !== undefined ? "" : "sin posición · ") + "hace " + ago(d.now - s.last_heard) + " · " + s.count + " pkt"));
+    row.onclick = () => select(s.call, true); box.appendChild(row);
+    if (s.lat === undefined) continue;
+    let m = markers[s.call];
+    if (!m) { m = markers[s.call] = L.circleMarker([s.lat, s.lon], {radius: 6, color: "#1f5fbf", fillColor: "#4f8ef7", fillOpacity: .85, weight: 2}).addTo(map);
+      m.bindTooltip(s.call); m.on("click", () => select(s.call, false)); }
+    m.setLatLng([s.lat, s.lon]); m.bindPopup(() => popupFor(stations[s.call]));
+    m.setStyle({opacity: d.now - s.last_heard > 3600 ? .45 : 1});
+  }
+  drawRoutes();
+}
+$("allroutes").onchange = drawRoutes;
+
+// ---- bucle ----
+async function tick() {
+  await Promise.allSettled([pollStatus(), evFeed(), rawFeed(), pollStations()]);
+  setTimeout(tick, 2000);
+}
+tick();
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+[Unit]
+Description=rfnetd - red IP sobre radio de paquetes (Direwolf + tncattach + captura + web)
+After=network.target sound.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/rfnetd
+Environment=PYTHONPATH=/opt/rfnetd PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m rfnetd -c /etc/rfnetd/rfnetd.conf
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

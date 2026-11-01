@@ -1,0 +1,54 @@
+# rfnetd — configuración. Copiar a /etc/rfnetd/rfnetd.conf
+# Reproduce el script activarRedRf original (ajusta indicativo, IP y rutas).
+
+[station]
+callsign = N0CALL-5
+# Centro del mapa y punto final de las rutas (esta estación)
+lat = 0.0
+lon = 0.0
+
+[direwolf]
+enabled = yes
+# -t 0 desactiva colores ANSI en la salida
+cmd = direwolf -t 0 -c /etc/direwolf.conf
+# Usuario con el que se lanza (necesita acceso al audio y al puerto serie del PTT)
+user = pi
+kiss_host = 127.0.0.1
+kiss_port = 8001
+# Segundos máximos esperando a que Direwolf abra el puerto KISS
+ready_timeout = 30
+
+[tncattach]
+enabled = yes
+# Igual que el script original, pero SIN -d (demonio): rfnetd lo supervisa en primer plano.
+cmd = tncattach -T -H 127.0.0.1 -P 8001 --mtu 250 --noipv6 --ipv4 44.0.0.2/24 -v
+ready_timeout = 20
+
+[network]
+interface = tnc0
+# Comandos a ejecutar (uno por línea, sin shell) cuando la interfaz ya existe.
+# {interface} se sustituye por el nombre de arriba. Líneas con # se ignoran.
+post_up =
+    ip route change 44.0.0.0/24 dev {interface} initrwnd 1 initcwnd 1
+    ip link set {interface} txqueuelen 1
+
+[capture]
+enabled = yes
+# Alternativa con tshark: tshark -l -i {interface} -T fields -e frame.time -e ip.src -e ip.dst -e _ws.col.Info
+cmd = tcpdump -l -nn -tttt -i {interface}
+
+[web]
+# 127.0.0.1 para limitar a la propia Pi (no hay autenticación)
+bind = 0.0.0.0
+port = 8088
+
+[logs]
+dir = /var/log/rfnetd
+buffer_lines = 2000
+max_bytes = 5000000
+backups = 3
+
+[data]
+dir = /var/lib/rfnetd
+max_age_hours = 48
+track_points = 50

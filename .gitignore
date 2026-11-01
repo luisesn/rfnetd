@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+direwolf.conf
+*.log
+stations.json
