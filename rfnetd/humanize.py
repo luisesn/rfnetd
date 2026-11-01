@@ -16,6 +16,11 @@ def _pos(p):
 
 
 def _via(p):
+    gw = p.get("gateway")
+    if gw:
+        rest = [d for d in p["digis"] if d != gw]
+        origin = "recibido de Internet por el IGate " if p.get("via_internet") else "retransmitido por el IGate "
+        return origin + " → ".join([gw] + rest)
     if p["digis"]:
         return "retransmitido por " + " → ".join(p["digis"])
     if p["path"]:
@@ -25,7 +30,7 @@ def _via(p):
 
 def aprs_packet(p):
     who = p["src"]
-    prefix = {"tx": "Transmitido: ", "ig": "IGate: "}.get(p["dir"], "")
+    prefix = {"tx": "Transmitido: ", "ig": "IGate: ", "digi": "Digipeado por esta estación: "}.get(p["dir"], "")
     t = p.get("type")
     if t in ("position", "mic-e", "object", "item"):
         kind = symbol_name(p.get("table"), p.get("symbol"))
@@ -51,6 +56,8 @@ def aprs_packet(p):
         if txt.startswith("rej"):
             return "%s%s rechaza (rej %s) a %s" % (prefix, who, txt[3:], p["to"])
         return "%s%s → %s: «%s»" % (prefix, who, p["to"], txt)
+    if t == "telemetry_def":
+        return "%s%s: definición de telemetría (%s)" % (prefix, who, p["text"].split(".", 1)[0])
     if t == "status":
         return "%s%s estado: «%s»" % (prefix, who, p["text"])
     if t == "weather":

@@ -8,6 +8,7 @@ UNCOMP_RE = re.compile(
     r"^(?P<lat>\d{2}[\d ]{2}\.[\d ]{2})(?P<ns>[NSns])(?P<tab>.)"
     r"(?P<lon>\d{3}[\d ]{2}\.[\d ]{2})(?P<ew>[EWew])(?P<code>.)(?P<rest>.*)$", re.S)
 CSE_SPD_RE = re.compile(r"^(\d{3})/(\d{3})")
+TELEM_DEF_RE = re.compile(r"^(PARM|UNIT|EQNS|BITS)\.")
 ALT_RE = re.compile(r"/A=(-?\d{6})")
 
 SYMBOLS = {
@@ -59,14 +60,14 @@ def _parse_uncompressed(body):
 
 
 def _parse_compressed(body):
-    if len(body) < 12:
+    if len(body) < 13:
         return None
     try:
         lat = 90 - _base91(body[1:5]) / 380926.0
         lon = -180 + _base91(body[5:9]) / 190463.0
     except ValueError:
         return None
-    out = {"lat": lat, "lon": lon, "table": body[0], "symbol": body[9], "comment": body[12:] if len(body) > 12 else ""}
+    out = {"lat": lat, "lon": lon, "table": body[0], "symbol": body[9], "comment": body[13:]}
     c, s = ord(body[10]) - 33, ord(body[11]) - 33
     if 0 <= c <= 89 and body[10] != " ":
         out["course"] = c * 4
@@ -154,14 +155,17 @@ def parse_info(dest, info):
         msgno = None
         if "{" in text:
             text, _, msgno = text.rpartition("{")
-        return {"type": "message", "to": info[1:10].strip(), "text": text, "msgno": msgno}
+        # PARM./UNIT./EQNS./BITS. son definiciones de telemetría, no mensajes de personas
+        kind = "telemetry_def" if TELEM_DEF_RE.match(text) else "message"
+        return {"type": kind, "to": info[1:10].strip(), "text": text, "msgno": msgno}
     if t == ">":
         return {"type": "status", "text": info[1:]}
     if t == "}":
         inner = re.match(r"^([A-Za-z0-9-]+)>([^:]*):(.*)$", info[1:], re.S)
         if inner:
             sub = parse_info(inner[2].split(",")[0], inner[3])
-            sub["third_party_from"] = inner[1]
+            sub["third_party_from"] = inner[1].upper()
+            sub["third_party_path"] = [x for x in inner[2].split(",")[1:] if x]
             return sub
     if t == "_":
         return {"type": "weather", "comment": info[1:]}
@@ -195,11 +199,22 @@ def parse_line(line):
     tag = m["tag"]
     if "ig" in tag.lower():
         direction = "ig"
-    elif tag.endswith(("L", "H")):
-        direction = "tx"
+    elif tag.endswith("L"):
+        direction = "tx"      # transmitido por nosotros (baliza, mensaje propio)
+    elif tag.endswith("H"):
+        direction = "digi"    # paquete de otra estación que nuestro digipeater ha repetido
     else:
         direction = "rx"
     pkt = {"tag": tag, "dir": direction, "src": m["src"].upper(), "dest": dest,
            "path": path, "digis": digis, "info": m["info"]}
     pkt.update(parse_info(dest, m["info"]))
+    if pkt.get("third_party_from"):
+        inner = pkt.get("third_party_path", [])
+        pkt["via_internet"] = any(x.upper().startswith(("TCPIP", "TCPXX", "QA")) for x in inner)
+        if pkt["third_party_from"] != pkt["src"]:
+            # Paquete de tercero (IGate): el contenido es de OTRA estación. El emisor exterior solo
+            # lo ha retransmitido por radio, así que es la pasarela y no el dueño de la posición.
+            pkt["gateway"] = pkt["src"]
+            pkt["src"] = pkt["third_party_from"]
+            pkt["digis"] = [pkt["gateway"]] + [d for d in pkt["digis"] if d != pkt["gateway"]]
     return pkt

@@ -3,184 +3,494 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rfnetd</title>
+<title>Interface &lt;rfnetd&gt;</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
-  :root { --bg:#f6f7f9; --fg:#1b1f24; --muted:#667085; --card:#fff; --line:#d9dde3; --ok:#1a7f37; --bad:#c62828; --warn:#b26a00; --accent:#1f5fbf; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#14171c; --fg:#e6e8eb; --muted:#9aa4b2; --card:#1c2128; --line:#2f3640; --ok:#4cc26a; --bad:#ff6b6b; --warn:#f0b04a; --accent:#6ea8ff; }
-  }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, sans-serif; display:flex; flex-direction:column; height:100vh; }
-  header { background:var(--card); border-bottom:1px solid var(--line); padding:8px 12px; display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; }
-  header h1 { font-size:16px; margin:0; }
-  .pill { padding:1px 8px; border-radius:10px; border:1px solid var(--line); font-size:12px; }
-  .ok { color:var(--ok); border-color:var(--ok); } .bad { color:var(--bad); border-color:var(--bad); } .warn { color:var(--warn); }
-  nav { display:flex; gap:4px; background:var(--card); border-bottom:1px solid var(--line); padding:0 8px; }
-  nav button { border:0; background:none; color:var(--muted); padding:8px 12px; cursor:pointer; font:inherit; border-bottom:2px solid transparent; }
-  nav button.on { color:var(--fg); border-bottom-color:var(--accent); }
-  main { flex:1; min-height:0; position:relative; }
-  section { position:absolute; inset:0; display:none; }
-  section.on { display:flex; }
-  #map { flex:1; min-width:0; }
-  #side { width:300px; max-width:40%; border-left:1px solid var(--line); background:var(--card); overflow:auto; }
-  #side h2 { font-size:13px; margin:0; padding:8px 10px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--card); }
-  .st { padding:6px 10px; border-bottom:1px solid var(--line); cursor:pointer; }
-  .st:hover, .st.sel { background:color-mix(in srgb, var(--accent) 12%, transparent); }
-  .st b { font-weight:600; } .st small { color:var(--muted); display:block; }
-  .tools { padding:6px 10px; border-bottom:1px solid var(--line); font-size:12px; }
-  .panel { flex:1; display:flex; flex-direction:column; min-width:0; }
-  .bar { padding:6px 10px; display:flex; gap:10px; align-items:center; background:var(--card); border-bottom:1px solid var(--line); flex-wrap:wrap; }
-  .bar input[type=text], .bar select { font:inherit; padding:3px 6px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:4px; }
-  .log { flex:1; overflow:auto; padding:6px 10px; font:12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
-  .log div { white-space:pre-wrap; word-break:break-word; border-bottom:1px solid color-mix(in srgb, var(--line) 50%, transparent); }
-  .log .t { color:var(--muted); } .log .src { color:var(--accent); } .log .error { color:var(--bad); } .log .warn { color:var(--warn); }
-  .own div { font-weight:700; }
+/* ═══ WinBox Legacy Theme (mismo estilo que la app del TK780) ═══ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: #008080; font-family: Tahoma, 'MS Sans Serif', Arial, sans-serif; font-size: 11px; color: #000;
+       display: flex; justify-content: center; padding: 12px; }
+.wb-window { background: #d4d0c8; border: 2px solid; border-color: #fff #404040 #404040 #fff;
+             box-shadow: inset -1px -1px 0 #808080, 2px 2px 6px rgba(0,0,0,.5);
+             width: 1200px; max-width: 100%; height: calc(100vh - 24px); display: flex; flex-direction: column; }
+.wb-titlebar { background: linear-gradient(90deg, #0a246a 0%, #3a6ea8 55%, #c2d7ef 100%); padding: 3px 4px 3px 6px;
+               display: flex; align-items: center; user-select: none; gap: 4px; }
+.wb-titlebar-text { flex: 1; color: #fff; font-weight: bold; text-shadow: 1px 1px 2px rgba(0,0,0,.5);
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-titlebar-controls { display: flex; gap: 2px; }
+.wb-titlebar-btn { width: 16px; height: 14px; min-width: unset; padding: 0; font-size: 9px; line-height: 1; box-shadow: none;
+                   border: 1px solid; border-color: #fff #808080 #808080 #fff; background: #d4d0c8; cursor: default; }
+.wb-tabs { background: #d4d0c8; display: flex; padding: 4px 6px 0; gap: 2px; position: relative; z-index: 2; flex-wrap: wrap; }
+.wb-tab { background: #bdb8b0; border: 1px solid; border-color: #fff #808080 #808080 #fff; padding: 2px 10px 3px; cursor: pointer;
+          user-select: none; position: relative; bottom: -1px; }
+.wb-tab.active { background: #d4d0c8; border-bottom-color: #d4d0c8; font-weight: bold; z-index: 3; }
+.wb-tab:not(.active):hover { background: #c8c4bc; }
+.wb-body { border: 1px solid; border-color: #808080 #fff #fff #808080; margin: 0 4px; padding: 8px; flex: 1; min-height: 0;
+           position: relative; z-index: 1; display: flex; }
+.pane { display: none; flex: 1; min-width: 0; gap: 6px; }
+.pane.on { display: flex; }
+.col { display: flex; flex-direction: column; min-width: 0; }
+.grow { flex: 1; min-height: 0; }
+.sunken { border: 2px solid; border-color: #808080 #fff #fff #808080; box-shadow: inset 1px 1px 0 #404040; background: #fff; }
+.wb-sep { border: none; border-top: 1px solid #808080; border-bottom: 1px solid #fff; margin: 5px 0; }
+.wb-group { border: 1px solid; border-color: #808080 #fff #fff #808080; padding: 8px 8px 6px; margin: 6px 0 4px; position: relative; }
+.wb-group > legend, .wb-group > .lg { position: absolute; top: -7px; left: 8px; background: #d4d0c8; padding: 0 4px; }
+.row { display: flex; align-items: center; gap: 5px; min-height: 19px; padding: 1px 0; flex-wrap: wrap; }
+.lbl { width: 150px; flex-shrink: 0; }
+.val { font-weight: bold; }
+.unit { color: #555; font-size: 10px; }
+input[type=number], input[type=text], select { background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080;
+   box-shadow: inset 1px 1px 0 #404040; padding: 1px 3px; font: inherit; outline: none; color: #000; }
+input[type=number] { width: 64px; } input[type=text] { width: 220px; } select { min-width: 168px; cursor: pointer; }
+input[type=range] { width: 130px; accent-color: #0a246a; vertical-align: middle; }
+input:disabled, select:disabled { color: #808080; background: #e8e5de; }
+button { background: #d4d0c8; border: 2px solid; border-color: #fff #808080 #808080 #fff;
+         box-shadow: inset -1px -1px 0 #404040, inset 1px 1px 0 #ede9e1; padding: 3px 8px; font: inherit; cursor: pointer;
+         color: #000; white-space: nowrap; user-select: none; min-width: 72px; }
+button:hover { background: #dbd7cf; }
+button:active { border-color: #808080 #fff #fff #808080; box-shadow: inset 1px 1px 0 #404040, inset -1px -1px 0 #ede9e1; padding: 4px 7px 2px 9px; }
+button:disabled { color: #808080; text-shadow: 1px 1px 0 #fff; cursor: default; }
+button:disabled:active { border-color: #fff #808080 #808080 #fff; padding: 3px 8px; box-shadow: inset -1px -1px 0 #404040, inset 1px 1px 0 #ede9e1; }
+.wb-titlebar-btn:active { padding: 1px 0 0 1px; }
+.wb-led { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1px solid #444; background: #888; flex-shrink: 0; }
+.wb-led.green { background: #00bb33; box-shadow: 0 0 5px #00bb33; } .wb-led.red { background: #cc2200; box-shadow: 0 0 5px #cc2200; }
+.wb-led.yellow { background: #ddaa00; box-shadow: 0 0 5px #ddaa00; }
+.wb-statusbar { display: flex; gap: 2px; padding: 3px 4px; border-top: 1px solid #808080; margin-top: 4px; }
+.wb-status-panel, .wb-status-right { border: 1px solid; border-color: #808080 #fff #fff #808080; padding: 1px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-status-panel { flex: 1; } .wb-status-right { flex-shrink: 0; font-weight: bold; color: #006600; padding: 1px 8px; }
+.wb-status-right.bad { color: #aa0000; }
+.msg.err { color: #aa0000; } .msg.ok { color: #006600; }
+/* mapa */
+#map { flex: 1; min-width: 0; } .leaflet-container { font: 11px Tahoma, Arial, sans-serif; }
+#side { width: 270px; flex-shrink: 0; display: flex; flex-direction: column; }
+#stlist { flex: 1; overflow: auto; }
+.st { padding: 3px 6px; border-bottom: 1px solid #e0ddd6; cursor: pointer; }
+.st:hover { background: #dde6f5; } .st.sel { background: #0a246a; color: #fff; } .st small { display: block; color: #666; } .st.sel small { color: #c8d4ee; }
+/* logs */
+.logbox { flex: 1; overflow: auto; padding: 4px 6px; font: 11px/1.45 ui-monospace, Consolas, 'Courier New', monospace; }
+.logbox div { white-space: pre-wrap; word-break: break-word; }
+.logbox .t { color: #777; } .logbox .src { color: #0a246a; } .logbox .error { color: #aa0000; } .logbox .warn { color: #996600; }
+.logbox .packet { color: #003d99; }
+table.kv { border-collapse: collapse; } table.kv td { padding: 2px 10px 2px 0; } table.kv td:first-child { width: 190px; }
+#visualizer { width: 100%; height: 70px; display: block; background: #12202e; }
+.legend { color: #3498db; font-size: 10px; margin-bottom: 3px; }
+@media (max-width: 760px) { .pane.on { flex-direction: column; } #side { width: auto; height: 200px; } #map { min-height: 240px; } .lbl { width: 110px; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>rfnetd <span id="call" class="pill"></span></h1>
-  <span id="state" class="pill"></span>
-  <span id="procs"></span>
-  <span id="cnt" style="color:var(--muted)"></span>
-</header>
-<nav id="tabs">
-  <button data-t="map" class="on">Mapa</button>
-  <button data-t="events">Eventos</button>
-  <button data-t="logs">Logs</button>
-</nav>
-<main>
-  <section id="map-s" class="on">
-    <div id="map"></div>
-    <div id="side">
-      <div class="tools"><label><input type="checkbox" id="allroutes"> Dibujar rutas de todas</label></div>
-      <h2>Estaciones <span id="nst"></span></h2>
-      <div id="stlist"></div>
+<div class="wb-window">
+  <div class="wb-titlebar">
+    <span class="wb-titlebar-text">Interface &lt;rfnetd&gt; — <span id="call">…</span></span>
+    <div class="wb-titlebar-controls">
+      <button class="wb-titlebar-btn" tabindex="-1">&#x2013;</button><button class="wb-titlebar-btn" tabindex="-1">&#x25A1;</button><button class="wb-titlebar-btn" tabindex="-1">&#xD7;</button>
     </div>
-  </section>
-  <section id="events-s">
-    <div class="panel">
-      <div class="bar">
-        <input type="text" id="evfilter" placeholder="filtrar…">
-        <select id="evsrc"><option value="">todas las fuentes</option><option>direwolf</option><option>tncattach</option><option>capture</option><option>rfnetd</option></select>
-        <label><input type="checkbox" id="evauto" checked> autoescroll</label>
-        <label><input type="checkbox" id="evpause"> pausa</label>
+  </div>
+  <div class="wb-tabs" id="tabs">
+    <span class="wb-tab active" data-t="map">Mapa</span><span class="wb-tab" data-t="msgs">Mensajes</span><span class="wb-tab" data-t="radio">Radio</span>
+    <span class="wb-tab" data-t="dw">Direwolf</span><span class="wb-tab" data-t="audio">Audio</span>
+    <span class="wb-tab" data-t="net">Red</span><span class="wb-tab" data-t="events">Eventos</span><span class="wb-tab" data-t="logs">Logs</span>
+  </div>
+
+  <div class="wb-body">
+    <!-- MAPA -->
+    <div class="pane on" id="p-map">
+      <div id="map" class="sunken"></div>
+      <div id="side">
+        <div class="row"><label><input type="checkbox" id="allroutes"> Rutas de todas</label></div>
+        <div class="row"><b>Estaciones <span id="nst"></span></b></div>
+        <div class="sunken" id="stlist"></div>
       </div>
-      <div class="log" id="evlog"></div>
     </div>
-  </section>
-  <section id="logs-s">
-    <div class="panel">
-      <div class="bar">
-        <select id="logsrc"><option>direwolf</option><option>tncattach</option><option value="capture">tcpdump</option><option>rfnetd</option></select>
-        <input type="text" id="logfilter" placeholder="filtrar…">
-        <label><input type="checkbox" id="logauto" checked> autoescroll</label>
-        <label><input type="checkbox" id="logpause"> pausa</label>
+
+    <!-- RADIO -->
+    <div class="pane" id="p-radio"><div class="col" style="width:100%;max-width:560px">
+      <div class="row"><span class="lbl">Radio:</span><span class="wb-led" id="r-link"></span><span class="val" id="r-linktxt">---</span></div>
+      <div class="row"><span class="lbl">Canal:</span><span class="val" id="r-ch">---</span></div>
+      <div class="row"><span class="lbl">Frecuencia:</span><span class="val" id="r-freq">---</span></div>
+      <div class="row"><span class="lbl">Señal (canal ocupado):</span><span class="wb-led" id="r-busy"></span><span id="r-busytxt">---</span></div>
+      <div class="row"><span class="lbl">Squelch (función):</span><span class="wb-led" id="r-mon"></span><span id="r-montxt">---</span></div>
+      <div class="row"><span class="lbl">Scan:</span><span class="wb-led" id="r-scan"></span><span id="r-scantxt">---</span></div>
+      <hr class="wb-sep">
+      <div class="row"><span class="lbl">Canal:</span><select id="r-sel"></select><button id="r-set">Cambiar</button></div>
+      <div class="row"><span class="lbl">Squelch:</span><button id="r-mon-on">Activar</button><button id="r-mon-off">Desactivar</button></div>
+      <div class="row"><span class="lbl">Scan:</span><button id="r-scan-on">Activar</button><button id="r-scan-off">Desactivar</button></div>
+      <div class="row msg" id="r-msg"></div>
+      <div class="row unit">El estado de Squelch y Scan solo se conoce tras conmutarlos desde aquí (la radio no lo informa).</div>
+    </div></div>
+
+    <!-- DIREWOLF -->
+    <div class="pane" id="p-dw"><div class="col" style="width:100%;overflow:auto">
+      <div class="wb-group"><span class="lg">Servicio Direwolf + red</span>
+        <div class="row"><span class="lbl">Estado:</span><span class="wb-led" id="d-led"></span><span class="val" id="d-state">---</span>
+          <span id="d-procs" class="unit"></span></div>
+        <div class="row"><button id="d-start">Activar</button><button id="d-stop">Desactivar</button><button id="d-restart">Reiniciar</button>
+          <span class="unit">Al desactivar se paran también tncattach y la captura (desaparece tnc0).</span></div>
       </div>
-      <div class="log" id="rawlog"></div>
+      <div class="wb-group"><span class="lg">Opciones de Direwolf</span>
+        <div id="d-form"></div>
+        <div class="row"><button id="d-apply">Aplicar y reiniciar</button><span class="msg" id="d-msg"></span></div>
+        <div class="row unit" id="d-note"></div>
+      </div>
+    </div></div>
+
+    <!-- AUDIO -->
+    <div class="pane" id="p-audio"><div class="col" style="width:100%;max-width:560px">
+      <div class="row"><button id="a-play">Escuchar</button><button id="a-stop" disabled>Parar</button></div>
+      <div class="row"><span class="lbl">Volumen:</span><input type="range" id="a-vol" min="0" max="1" step="0.01" value="0.7"><span class="unit" id="a-vollbl">70%</span></div>
+      <hr class="wb-sep">
+      <div class="legend">&#9632; Nivel de audio</div>
+      <canvas id="visualizer" class="sunken"></canvas>
+      <hr class="wb-sep">
+      <div class="row"><span class="lbl">Estado:</span><span class="val" id="a-state">---</span></div>
+      <div class="row"><span class="lbl">Dispositivo:</span><span id="a-dev">---</span></div>
+      <div class="row"><span class="lbl">Oyentes:</span><span id="a-n">---</span></div>
+      <div class="row msg" id="a-msg"></div>
+      <div class="row unit">El audio llega con unos segundos de retraso (buffer del navegador). Con Direwolf activo la captura debe compartirse (dsnoop), ver README.</div>
+    </div></div>
+
+    <!-- RED -->
+    <div class="pane" id="p-net"><div class="col" style="width:100%"><table class="kv" id="n-table"></table></div></div>
+
+    <!-- MENSAJES -->
+    <div class="pane" id="p-msgs">
+      <div id="side" class="col" style="width:250px">
+        <div class="row"><b>Conversaciones</b></div>
+        <div class="sunken" id="convlist" style="flex:1;overflow:auto"></div>
+      </div>
+      <div class="col grow" style="flex:1">
+        <div class="row"><b id="thread-title">Todos los mensajes</b>
+          <input type="text" id="msgq" placeholder="buscar en mensajes…" style="width:170px">
+          <label><input type="checkbox" id="msgme"> solo para mí</label><label><input type="checkbox" id="msgack"> ver ack</label>
+          <button id="msgall">Ver todos</button></div>
+        <div class="logbox sunken" id="msglog"></div>
+        <div class="row unit">Se guardan todos los mensajes APRS recibidos (las copias repetidas se agrupan en «×N»). Solo lectura: no se envían mensajes.</div>
+      </div>
     </div>
-  </section>
-</main>
+
+    <!-- EVENTOS -->
+    <div class="pane" id="p-events"><div class="col grow" style="width:100%">
+      <div class="row"><input type="text" id="evfilter" placeholder="buscar en todo el histórico…">
+        <select id="evsrc"><option value="">todas las fuentes</option><option>direwolf</option><option>radio</option><option>tncattach</option><option>capture</option><option>audio</option><option>rfnetd</option></select>
+        <input type="datetime-local" id="evdate" title="ir a esta fecha"><button id="evnow">Ahora</button>
+        <label><input type="checkbox" id="evauto" checked> autoscroll</label><label><input type="checkbox" id="evpause"> pausa</label><span class="unit" id="evinfo"></span></div>
+      <div class="logbox sunken" id="evlog"></div>
+    </div></div>
+
+    <!-- LOGS -->
+    <div class="pane" id="p-logs"><div class="col grow" style="width:100%">
+      <div class="row"><select id="logsrc"><option>direwolf</option><option>tncattach</option><option value="capture">tcpdump</option><option>radio</option><option>audio</option><option>rfnetd</option></select>
+        <input type="text" id="logfilter" placeholder="buscar en todo el histórico…">
+        <input type="datetime-local" id="logdate" title="ir a esta fecha"><button id="lognow">Ahora</button>
+        <label><input type="checkbox" id="logauto" checked> autoscroll</label><label><input type="checkbox" id="logpause"> pausa</label><span class="unit" id="loginfo"></span></div>
+      <div class="logbox sunken" id="rawlog"></div>
+    </div></div>
+  </div>
+
+  <div class="wb-statusbar">
+    <span class="wb-status-panel" id="sb-procs">…</span>
+    <span class="wb-status-panel" id="sb-cnt"></span>
+    <span class="wb-status-right" id="sb-link">link ok</span>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 "use strict";
-// Todo el texto que llega por radio es no fiable: se inserta solo con textContent.
+// Todo texto que llega por radio es no fiable: se inserta solo con textContent.
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 const hhmmss = ts => new Date(ts * 1000).toLocaleTimeString();
 const ago = s => s < 90 ? Math.round(s) + " s" : s < 5400 ? Math.round(s / 60) + " min" : (s / 3600).toFixed(1) + " h";
-const getJSON = async url => (await fetch(url, {cache: "no-store"})).json();
+const getJSON = async url => { const r = await fetch(url, {cache: "no-store"}); if (!r.ok) throw new Error(r.status); return r.json(); };
+async function post(url, body) {
+  const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json", "X-Requested-With": "rfnetd"}, body: JSON.stringify(body)});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+  return d;
+}
+function say(id, text, ok) { const e = $(id); e.textContent = text || ""; e.className = "msg " + (text ? (ok ? "ok" : "err") : "") + (e.classList.contains("row") ? " row" : ""); }
+const setLed = (id, v) => { $(id).className = "wb-led" + (v === true ? " green" : v === false ? " red" : ""); };
 
 // ---- pestañas ----
-document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
-  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
-  document.querySelectorAll("main section").forEach(s => s.classList.toggle("on", s.id === b.dataset.t + "-s"));
-  if (b.dataset.t === "map") setTimeout(() => map.invalidateSize(), 50);
+let tab = "map";
+document.querySelectorAll("#tabs .wb-tab").forEach(t => t.onclick = () => {
+  tab = t.dataset.t;
+  document.querySelectorAll("#tabs .wb-tab").forEach(x => x.classList.toggle("active", x === t));
+  document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.id === "p-" + tab));
+  if (tab === "map") setTimeout(() => map.invalidateSize(), 50);
+  if (tab === "dw") loadDw(true);
+  if (tab === "events") evFeed.ensure();
+  if (tab === "logs") rawFeed.ensure();
+  if (tab === "msgs") { loadConvs(); liveMsgs(); }
+  tick();
 });
 
-// ---- estado ----
-let own = null;
+// ---- estado general ----
+let own = null, control = false, lastStatus = null;
 async function pollStatus() {
   try {
-    const s = await getJSON("/api/status");
+    const s = lastStatus = await getJSON("/api/status");
+    control = s.control;
     $("call").textContent = s.station.callsign;
     if (!own && (s.station.lat || s.station.lon)) { own = s.station; drawOwn(); map.setView([own.lat, own.lon], 9); }
-    const st = $("state"); st.textContent = s.state; st.className = "pill " + (s.state === "activo" ? "ok" : "warn");
-    const pr = $("procs"); pr.replaceChildren();
-    for (const [n, p] of Object.entries(s.procs)) {
-      const e = el("span", "pill " + (p.alive ? "ok" : "bad"), n + (p.alive ? " ✓" : " ✗") + (p.restarts ? " ↻" + p.restarts : ""));
-      e.style.marginRight = "4px"; pr.appendChild(e);
-    }
-    const ifc = el("span", "pill " + (s.interface_up ? "ok" : "bad"), s.interface + (s.interface_up ? " arriba" : " abajo"));
-    pr.appendChild(ifc);
+    const sb = $("sb-procs"); sb.replaceChildren();
+    const mk = (name, ok, extra) => { const w = el("span", ""); w.style.marginRight = "10px"; const l = el("span", "wb-led " + (ok === true ? "green" : ok === false ? "red" : "")); w.append(l, document.createTextNode(" " + name + (extra || ""))); sb.appendChild(w); };
+    sb.append(el("b", "", s.state + "  "));
+    for (const [n, p] of Object.entries(s.procs)) mk(n, p.alive, p.restarts ? " ↻" + p.restarts : "");
+    mk(s.interface, s.interface_up);
+    mk("radio", s.radio.enabled ? s.radio.connected : null);
     const c = s.counters;
-    $("cnt").textContent = `APRS rx ${c.aprs_rx} · tx ${c.aprs_tx} · IP ${c.ip_packets}` + (c.last_aprs ? ` · último APRS hace ${ago(s.now - c.last_aprs)}` : "");
-  } catch (e) { $("state").textContent = "sin conexión"; $("state").className = "pill bad"; }
+    $("sb-cnt").textContent = `APRS rx ${c.aprs_rx} · tx ${c.aprs_tx} · IP ${c.ip_packets}` + (c.last_aprs ? ` · último APRS hace ${ago(s.now - c.last_aprs)}` : "");
+    $("sb-link").textContent = control ? "link ok" : "solo lectura"; $("sb-link").className = "wb-status-right" + (control ? "" : " bad");
+    const a = s.audio; $("a-state").textContent = a.running ? "capturando" : "en espera"; $("a-dev").textContent = a.device; $("a-n").textContent = a.listeners;
+    $("a-play").disabled = !control || !a.enabled || !!audioEl;
+    if (!control) say("a-msg", "Sin contraseña configurada ([web] password): el audio está desactivado.", false);
+    else if (!a.enabled) say("a-msg", "Audio desactivado en la configuración ([audio] enabled).", false);
+    else if (a.error) say("a-msg", a.error, false);
+  } catch (e) { $("sb-link").textContent = "sin enlace"; $("sb-link").className = "wb-status-right bad"; }
 }
 
-// ---- logs incrementales ----
-function makeFeed(box, url, render, opts) {
-  let after = 0, key = "";
-  return async function poll() {
-    if (opts.paused()) return;
-    const k = opts.key(); if (k !== key) { key = k; after = 0; box.replaceChildren(); }
-    const d = await getJSON(url(after));
-    if (d.last < after) { after = 0; box.replaceChildren(); return; }
-    for (const r of d.rows) {
-      after = Math.max(after, r.seq);
-      const node = render(r);
-      node.dataset.f = node.textContent.toLowerCase();
-      if (r.src) node.dataset.src = r.src;
-      node.hidden = !opts.match(node);
-      box.appendChild(node);
+// ---- radio ----
+let radioSel = false;
+async function pollRadio() {
+  const r = await getJSON("/api/radio");
+  setLed("r-link", r.enabled ? r.connected : null);
+  $("r-linktxt").textContent = !r.enabled ? "desactivada en la configuración" : r.connected ? "conectada (" + r.port + ")" : "sin conexión" + (r.error ? ": " + r.error : "");
+  $("r-ch").textContent = r.channel === null ? "---" : `${r.group}/${r.channel}  ${r.name}`;
+  $("r-freq").textContent = r.freq ? r.freq.toFixed(3) + " MHz" : "---";
+  const tri = (led, txt, v, on, off) => { setLed(led, v === null ? undefined : v); $(txt).textContent = v === null ? "---" : v ? on : off; };
+  tri("r-busy", "r-busytxt", r.busy, "ocupado", "libre"); tri("r-mon", "r-montxt", r.monitor, "activo", "inactivo"); tri("r-scan", "r-scantxt", r.scan, "activo", "inactivo");
+  if (!radioSel && r.channels.length) {
+    const s = $("r-sel"); s.replaceChildren();
+    r.channels.forEach((c, i) => { const o = el("option", "", `${i}: ${c.n}` + (c.f ? ` (${c.f.toFixed(3)})` : "")); o.value = i; s.appendChild(o); });
+    radioSel = true;
+  }
+  const ok = control && r.connected;
+  ["r-set", "r-mon-on", "r-mon-off", "r-scan-on", "r-scan-off"].forEach(i => $(i).disabled = !ok);
+  if (!control) say("r-msg", "Solo lectura: define [web] password para controlar la radio.", false);
+}
+async function radioCmd(body) {
+  try { await post("/api/radio", body); say("r-msg", "Hecho", true); pollRadio(); } catch (e) { say("r-msg", e.message, false); }
+}
+$("r-set").onclick = () => radioCmd({action: "channel", channel: +$("r-sel").value});
+$("r-mon-on").onclick = () => radioCmd({action: "monitor", on: true}); $("r-mon-off").onclick = () => radioCmd({action: "monitor", on: false});
+$("r-scan-on").onclick = () => radioCmd({action: "scan", on: true}); $("r-scan-off").onclick = () => radioCmd({action: "scan", on: false});
+
+// ---- direwolf ----
+let dwDirty = {}, dwSchema = [];
+function fieldInput(f, val, avail) {
+  let inp;
+  if (f.type === "bool") { inp = el("input"); inp.type = "checkbox"; inp.checked = !!val; inp.disabled = f.available === false; }
+  else if (f.type === "choice") { inp = el("select"); f.limits.forEach(v => { const o = el("option", "", v); o.value = v; inp.appendChild(o); }); inp.value = val === undefined ? "" : String(val); }
+  else if (f.type === "int") { inp = el("input"); inp.type = "number"; inp.min = f.limits[0]; inp.max = f.limits[1]; inp.value = val === undefined ? "" : val; }
+  else { inp = el("input"); inp.type = "text"; inp.maxLength = 60; inp.value = val === undefined ? "" : val; }
+  inp.dataset.key = f.key;
+  inp.addEventListener("input", () => { dwDirty[f.key] = f.type === "bool" ? inp.checked : f.type === "int" ? +inp.value : inp.value; syncDeps(); });
+  return inp;
+}
+function syncDeps() {
+  const b = document.querySelector('#d-form [data-key="beacon"]');
+  document.querySelectorAll("#d-form [data-dep]").forEach(i => i.disabled = !control || !(b && b.checked));
+}
+async function loadDw(rebuild) {
+  const d = await getJSON("/api/direwolf");
+  setLed("d-led", d.chain_on ? (d.state === "activo") : false); $("d-led").classList.toggle("yellow", d.chain_on && d.state !== "activo");
+  $("d-state").textContent = d.chain_on ? d.state : "desactivado por el usuario";
+  $("d-procs").textContent = Object.entries(d.procs).map(([n, p]) => n + (p.alive ? " ✓" : " ✗")).join("  ");
+  ["d-start"].forEach(i => $(i).disabled = !control || d.chain_on); ["d-stop", "d-restart"].forEach(i => $(i).disabled = !control || !d.chain_on);
+  if (rebuild || !$("d-form").childElementCount) {
+    const f = $("d-form"); f.replaceChildren(); dwDirty = {};
+    if (!d.managed) { f.appendChild(el("div", "unit", d.error || "Opciones no disponibles: indica [direwolf] base_conf y usa {conf} en cmd.")); }
+    else for (const s of d.schema) {
+      const row = el("div", "row"); row.appendChild(el("span", "lbl", s.label));
+      const inp = fieldInput(s, d.values[s.key]); if (s.depends) inp.dataset.dep = s.depends;
+      row.appendChild(inp); if (s.type === "bool" && s.available === false) row.appendChild(el("span", "unit", "no está en tu direwolf.conf"));
+      f.appendChild(row);
     }
-    while (box.childElementCount > 3000) box.removeChild(box.firstChild);
-    if (d.rows.length && opts.auto()) box.scrollTop = box.scrollHeight;
-  };
+    syncDeps();
+    $("d-note").textContent = d.managed ? "Se aplican sobre una copia: tu direwolf.conf no se modifica y el passcode de APRS-IS no sale del equipo." : "";
+  }
+  $("d-apply").disabled = !control || !d.managed;
+  if (!control) say("d-msg", "Solo lectura: define [web] password para controlar Direwolf.", false);
 }
-const matcher = (input, srcSel) => n => (!input.value || n.dataset.f.includes(input.value.toLowerCase())) && (!srcSel || !srcSel.value || n.dataset.src === srcSel.value);
-function applyFilter(box, ctl, match) { ctl.forEach(c => c.addEventListener("input", () => { for (const n of box.children) n.hidden = !match(n); })); }
+async function dwCmd(body, okmsg) {
+  try { await post("/api/direwolf", body); say("d-msg", okmsg, true); await loadDw(body.action === "apply"); } catch (e) { say("d-msg", e.message, false); }
+}
+$("d-start").onclick = () => dwCmd({action: "start"}, "Activando…"); $("d-stop").onclick = () => dwCmd({action: "stop"}, "Desactivado");
+$("d-restart").onclick = () => dwCmd({action: "restart"}, "Reiniciando…");
+$("d-apply").onclick = () => Object.keys(dwDirty).length ? dwCmd({action: "apply", options: dwDirty}, "Aplicado: reiniciando Direwolf") : say("d-msg", "No hay cambios", false);
 
-const row = (r, src) => { const d = el("div", r.level || ""); d.append(el("span", "t", hhmmss(r.ts) + " "), ...(src ? [el("span", "src", "[" + src + "] ")] : []), document.createTextNode(r.text)); return d; };
-const evFeed = makeFeed($("evlog"), a => "/api/events?after=" + a, r => row(r, r.src), {
-  paused: () => $("evpause").checked, auto: () => $("evauto").checked, key: () => "", match: matcher($("evfilter"), $("evsrc")) });
-applyFilter($("evlog"), [$("evfilter"), $("evsrc")], matcher($("evfilter"), $("evsrc")));
-const rawFeed = makeFeed($("rawlog"), a => "/api/logs?src=" + $("logsrc").value + "&after=" + a, r => row(r, null), {
-  paused: () => $("logpause").checked, auto: () => $("logauto").checked, key: () => $("logsrc").value, match: matcher($("logfilter"), null) });
-applyFilter($("rawlog"), [$("logfilter")], matcher($("logfilter"), null));
+// ---- audio ----
+let audioEl = null, actx = null, gain = null, analyser = null, levels = [];
+const vis = $("visualizer"), vctx = vis.getContext("2d");
+$("a-play").onclick = () => {
+  actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+  gain = gain || actx.createGain(); gain.gain.value = +$("a-vol").value;
+  analyser = analyser || actx.createAnalyser(); analyser.fftSize = 512;
+  audioEl = new Audio(); audioEl.src = "/stream?t=" + Date.now();
+  const src = actx.createMediaElementSource(audioEl); src.connect(gain); gain.connect(analyser); analyser.connect(actx.destination);
+  audioEl.onerror = () => { say("a-msg", "Error de audio: " + (audioEl && audioEl.error ? audioEl.error.message || "no se pudo abrir el stream" : ""), false); stopAudio(); };
+  audioEl.play().then(() => say("a-msg", "Escuchando", true)).catch(e => { say("a-msg", e.message, false); stopAudio(); });
+  $("a-play").disabled = true; $("a-stop").disabled = false;
+};
+function stopAudio() { if (audioEl) { audioEl.onerror = null; audioEl.pause(); audioEl.removeAttribute("src"); audioEl.load(); audioEl = null; } $("a-stop").disabled = true; }
+$("a-stop").onclick = () => { stopAudio(); say("a-msg", "", true); };
+$("a-vol").oninput = e => { $("a-vollbl").textContent = Math.round(e.target.value * 100) + "%"; if (gain) gain.gain.value = +e.target.value; };
+function drawLevel() {
+  const w = vis.width = vis.clientWidth, h = vis.height = vis.clientHeight;
+  let lvl = 0;
+  if (analyser && audioEl) { const d = new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(d); let s = 0; for (const v of d) s += (v - 128) * (v - 128); lvl = Math.min(1, Math.sqrt(s / d.length) / 64); }
+  levels.push(lvl); if (levels.length > w / 2) levels.shift();
+  vctx.fillStyle = "#12202e"; vctx.fillRect(0, 0, w, h); vctx.strokeStyle = "#3498db"; vctx.beginPath();
+  levels.forEach((v, i) => { const x = i * 2, y = h - 2 - v * (h - 4); i ? vctx.lineTo(x, y) : vctx.moveTo(x, y); }); vctx.stroke();
+  requestAnimationFrame(drawLevel);
+}
+drawLevel();
+
+// ---- red ----
+async function pollNet() {
+  const n = await getJSON("/api/network"), t = $("n-table"); t.replaceChildren();
+  const rows = [["Interfaz", n.name + (n.exists ? "" : " (no existe)")], ["Estado", n.operstate], ["Direcciones", (n.addrs || []).join(", ") || "---"],
+    ["IPv6", n.ipv6 + (n.ipv6_addrs.length ? " — " + n.ipv6_addrs.join(", ") : "")], ["MTU", n.mtu], ["txqueuelen", n.txqueuelen],
+    ["Paquetes rx / tx", `${n.rx_packets} / ${n.tx_packets}`], ["Bytes rx / tx", `${n.rx_bytes} / ${n.tx_bytes}`], ["Errores rx / tx", `${n.rx_errors} / ${n.tx_errors}`], ["Descartados tx", n.tx_dropped]];
+  for (const [k, v] of rows) { const tr = el("tr"); tr.append(el("td", "", k), el("td", "val", v === null || v === undefined ? "---" : String(v))); t.appendChild(tr); }
+}
+
+// ---- logs con histórico completo: carga inicial + scroll hacia arriba + tiempo real ----
+const PAGE = 200;
+function makeFeed(o) {
+  // o: box, hist(params)->url, live(after)->url, render(row), ctl: {q, date, auto, paused, info, key}
+  let oldest = 0, newest = 0, loading = false, exhausted = false, key = null, timer = null, mode = "live";
+  const box = o.box;
+  const params = () => ({q: o.ctl.q.value.trim(), until: o.ctl.date && o.ctl.date.value ? Math.floor(new Date(o.ctl.date.value).getTime() / 1000) : 0});
+  const marker = txt => { const d = el("div", "t", txt); d.dataset.marker = "1"; return d; };
+  async function older(initial) {
+    if (loading || exhausted) return; loading = true;
+    try {
+      const p = params(), k = o.ctl.key ? o.ctl.key() : "";
+      const d = await getJSON(o.hist({before: oldest, limit: PAGE, q: p.q, until: p.until}));
+      if (k !== (o.ctl.key ? o.ctl.key() : "")) return;           // cambió el filtro mientras cargaba
+      const first = box.querySelector("[data-marker]"); if (first) first.remove();
+      if (d.rows.length < PAGE) exhausted = true;
+      const frag = document.createDocumentFragment();
+      if (exhausted) frag.appendChild(marker(d.rows.length || oldest ? "— inicio del histórico —" : "— sin resultados —"));
+      d.rows.forEach(r => frag.appendChild(o.render(r)));
+      const prev = box.scrollHeight; box.prepend(frag);
+      if (initial) box.scrollTop = box.scrollHeight; else box.scrollTop += box.scrollHeight - prev;
+      if (d.rows.length) { oldest = d.rows[0].seq; newest = Math.max(newest, d.rows[d.rows.length - 1].seq); }
+      o.ctl.info.textContent = mode === "live" ? "" : (p.q ? "resultados de la búsqueda" : "histórico desde la fecha elegida");
+    } catch (e) { o.ctl.info.textContent = "error: " + e.message; } finally { loading = false; }
+  }
+  async function reset() {
+    box.replaceChildren(); oldest = newest = 0; exhausted = false;
+    const p = params(); mode = (p.q || p.until) ? "history" : "live";
+    key = JSON.stringify(p) + (o.ctl.key ? o.ctl.key() : "");
+    await older(true);
+  }
+  async function live() {
+    if (mode !== "live" || o.ctl.paused.checked || loading) return;
+    if (key === null) return reset();
+    const d = await getJSON(o.live(newest)); if (!d.rows.length) return;
+    for (const r of d.rows) { newest = Math.max(newest, r.seq); if (!o.accept || o.accept(r)) box.appendChild(o.render(r)); }
+    while (box.childElementCount > 5000) box.removeChild(box.firstChild);
+    if (o.ctl.auto.checked) box.scrollTop = box.scrollHeight;
+  }
+  box.addEventListener("scroll", () => { if (box.scrollTop < 80) older(false); });
+  const sched = () => { clearTimeout(timer); timer = setTimeout(reset, 350); };
+  [o.ctl.q, o.ctl.date, o.ctl.src].filter(Boolean).forEach(c => c.addEventListener("input", sched));
+  if (o.ctl.now) o.ctl.now.onclick = () => { o.ctl.date.value = ""; o.ctl.q.value = ""; reset(); };
+  return {live, reset, ensure: () => key === null && reset()};
+}
+const row = (r, src) => { const d = el("div", r.level || ""); d.append(el("span", "t", new Date(r.ts * 1000).toLocaleString() + " "), ...(src ? [el("span", "src", "[" + src + "] ")] : []), document.createTextNode(r.text)); return d; };
+const qs = o => Object.entries(o).filter(([, v]) => v).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
+const evFeed = makeFeed({ box: $("evlog"), render: r => row(r, r.src),
+  hist: p => "/api/history/events?" + qs(Object.assign({src: $("evsrc").value}, p)), live: a => "/api/events?after=" + a, accept: r => !$("evsrc").value || r.src === $("evsrc").value,
+  ctl: { q: $("evfilter"), date: $("evdate"), now: $("evnow"), src: $("evsrc"), auto: $("evauto"), paused: $("evpause"), info: $("evinfo"), key: () => $("evsrc").value } });
+const rawFeed = makeFeed({ box: $("rawlog"), render: r => row(r, null),
+  hist: p => "/api/history/raw?" + qs(Object.assign({src: $("logsrc").value}, p)), live: a => "/api/logs?src=" + $("logsrc").value + "&after=" + a,
+  ctl: { q: $("logfilter"), date: $("logdate"), now: $("lognow"), src: $("logsrc"), auto: $("logauto"), paused: $("logpause"), info: $("loginfo"), key: () => $("logsrc").value } });
+
+// ---- mensajes APRS ----
+let conv = "", convMeta = null, me = "", msgOldest = 0, msgNewest = 0, msgLoading = false, msgDone = false, convSig = "";
+const peerLabel = c => c.bulletin ? "Boletín " + c.peers[0] : c.peers.join(" ↔ ");
+function msgNode(m) {
+  const mine = me && m.src === me, d = el("div", "");
+  d.style.cssText = "margin:3px 0;padding:3px 6px;border:1px solid #c8c4bc;max-width:80%;" + (mine ? "margin-left:auto;background:#dde6f5;" : "background:#f4f2ec;") + (m.kind === "ack" || m.kind === "rej" ? "opacity:.6;" : "");
+  const head = el("div", "t", new Date(m.ts * 1000).toLocaleString() + "  " + m.src + " → " + m.dest + (m.heard > 1 ? "  ×" + m.heard : "") + (m.gateway ? "  (IGate " + m.gateway + ")" : "") + (m.msgno ? "  #" + m.msgno : ""));
+  d.append(head, el("div", "", m.kind === "ack" ? "✓ confirmado " + m.text.slice(3) : m.kind === "rej" ? "✗ rechazado " + m.text.slice(3) : m.text));
+  d.dataset.id = m.id; return d;
+}
+const msgParams = extra => qs(Object.assign({conv, q: $("msgq").value.trim(), to: $("msgme").checked ? me : ""}, extra));
+async function loadConvs() {
+  const d = await getJSON("/api/conversations"), sig = JSON.stringify(d.rows.map(c => [c.conv, c.last_id]));
+  if (sig === convSig) return; convSig = sig;
+  const box = $("convlist"); box.replaceChildren();
+  for (const c of d.rows) {
+    const r = el("div", "st" + (c.conv === conv ? " sel" : "")); r.dataset.conv = c.conv;
+    r.append(el("b", "", peerLabel(c)), el("small", "", c.n + " msj · " + new Date(c.ts * 1000).toLocaleString()), el("small", "", c.last_text.slice(0, 60)));
+    r.onclick = () => selectConv(c.conv, peerLabel(c)); box.appendChild(r);
+  }
+}
+async function selectConv(c, title) {
+  conv = c; $("thread-title").textContent = c ? title : "Todos los mensajes";
+  document.querySelectorAll("#convlist .st").forEach(n => n.classList.toggle("sel", n.dataset.conv === c));
+  const box = $("msglog"); box.replaceChildren(); msgOldest = msgNewest = 0; msgDone = false; await olderMsgs(true);
+}
+async function olderMsgs(initial) {
+  if (msgLoading || msgDone) return; msgLoading = true;
+  try {
+    const d = await getJSON("/api/messages?" + msgParams({before: msgOldest, limit: 100})); me = d.me;
+    const box = $("msglog"), rows = d.rows.filter(m => $("msgack").checked || (m.kind !== "ack" && m.kind !== "rej"));
+    if (d.rows.length < 100) msgDone = true;
+    const mk = box.querySelector("[data-marker]"); if (mk) mk.remove();
+    const frag = document.createDocumentFragment();
+    if (msgDone) { const m = el("div", "t", d.rows.length || msgOldest ? "— inicio de la conversación —" : "— sin mensajes —"); m.dataset.marker = "1"; frag.appendChild(m); }
+    rows.forEach(m => frag.appendChild(msgNode(m)));
+    const prev = box.scrollHeight; box.prepend(frag);
+    if (initial) box.scrollTop = box.scrollHeight; else box.scrollTop += box.scrollHeight - prev;
+    if (d.rows.length) { msgOldest = d.rows[0].id; msgNewest = Math.max(msgNewest, d.rows[d.rows.length - 1].id); }
+  } finally { msgLoading = false; }
+}
+async function liveMsgs() {
+  if (!msgNewest && !$("msglog").childElementCount) return selectConv("", "Todos los mensajes");
+  const d = await getJSON("/api/messages?" + qs({after: msgNewest, limit: 100})); me = d.me;
+  if (!d.rows.length) return;
+  const box = $("msglog"), stick = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  for (const m of d.rows) {
+    msgNewest = Math.max(msgNewest, m.id);
+    const inConv = !conv || m.conv === conv, vis = $("msgack").checked || (m.kind !== "ack" && m.kind !== "rej");
+    if (inConv && vis && !$("msgq").value && (!$("msgme").checked || m.dest === me)) box.appendChild(msgNode(m));
+  }
+  if (stick) box.scrollTop = box.scrollHeight;
+  convSig = ""; loadConvs();
+}
+$("msglog").addEventListener("scroll", () => { if ($("msglog").scrollTop < 80) olderMsgs(false); });
+let msgTimer = null; const msgRefresh = () => { clearTimeout(msgTimer); msgTimer = setTimeout(() => selectConv(conv, $("thread-title").textContent), 350); };
+["msgq", "msgme", "msgack"].forEach(i => $(i).addEventListener("input", msgRefresh));
+$("msgall").onclick = () => selectConv("", "Todos los mensajes");
 
 // ---- mapa ----
 const map = L.map("map").setView([40, -3.7], 5);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 18, attribution: "© OpenStreetMap contributors"}).addTo(map);
 const markers = {}, routeLayer = L.layerGroup().addTo(map), trackLayer = L.layerGroup().addTo(map);
 let ownMarker = null, selected = null, stations = {};
-
 function drawOwn() {
   if (ownMarker) ownMarker.remove();
-  ownMarker = L.circleMarker([own.lat, own.lon], {radius: 9, color: "#c62828", fillColor: "#ff5252", fillOpacity: .9, weight: 3})
-    .bindTooltip(own.callsign + " (esta estación)").addTo(map);
+  ownMarker = L.circleMarker([own.lat, own.lon], {radius: 9, color: "#c62828", fillColor: "#ff5252", fillOpacity: .9, weight: 3}).bindTooltip(own.callsign + " (esta estación)").addTo(map);
 }
 function popupFor(s) {
-  const d = el("div");
-  d.append(el("b", "", s.call), el("br"));
-  const lines = [
-    s.symbol_name, `${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}`,
+  const d = el("div"); d.append(el("b", "", s.call), el("br"));
+  const lines = [s.symbol_name, `${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}`,
     s.speed_kn ? `${Math.round(s.speed_kn * 1.852)} km/h` + (s.course !== undefined ? `, rumbo ${s.course}°` : "") : null,
-    s.comment ? "«" + s.comment.trim() + "»" : null,
-    `${s.count} paquetes, hace ${ago(Date.now() / 1000 - s.last_heard)}`,
-    "ruta: " + s.route.join(" → ") + " → " + (own ? own.callsign : "yo"),
-  ].filter(Boolean);
+    s.comment ? "«" + s.comment.trim() + "»" : null, `${s.count} paquetes, hace ${ago(Date.now() / 1000 - s.last_heard)}`,
+    "ruta: " + s.route.join(" → ") + " → " + (own ? own.callsign : "yo")].filter(Boolean);
   for (const l of lines) d.append(el("div", "", l));
   return d;
 }
 function routePoints(s) {
   const pts = [], missing = [];
-  for (const c of s.route) {
-    const st = stations[c];
-    if (st && st.lat !== undefined) pts.push([st.lat, st.lon]); else if (c !== s.call && c !== s.via) missing.push(c);
-  }
+  for (const c of s.route) { const st = stations[c]; if (st && st.lat !== undefined) pts.push([st.lat, st.lon]); else if (c !== s.call && c !== s.via) missing.push(c); }
   if (s.lat !== undefined) pts[0] = [s.lat, s.lon];
   if (own) pts.push([own.lat, own.lon]);
   return {pts, missing};
@@ -191,8 +501,7 @@ function drawRoutes() {
   for (const s of list) {
     if (s.lat === undefined) continue;
     const {pts, missing} = routePoints(s);
-    if (pts.length > 1) L.polyline(pts, {color: s.call === selected ? "#1f5fbf" : "#888", weight: s.call === selected ? 3 : 1.5, dashArray: "6 6", opacity: .8})
-      .bindTooltip(missing.length ? "sin posición: " + missing.join(", ") : "ruta").addTo(routeLayer);
+    if (pts.length > 1) L.polyline(pts, {color: s.call === selected ? "#0a246a" : "#888", weight: s.call === selected ? 3 : 1.5, dashArray: "6 6", opacity: .8}).bindTooltip(missing.length ? "sin posición: " + missing.join(", ") : "ruta").addTo(routeLayer);
   }
   const s = stations[selected];
   if (s && s.track && s.track.length > 1) L.polyline(s.track.map(p => [p[0], p[1]]), {color: "#d9822b", weight: 2}).addTo(trackLayer);
@@ -204,18 +513,17 @@ function select(call, pan) {
 }
 async function pollStations() {
   const d = await getJSON("/api/stations");
-  stations = {}; for (const s of d.stations) { stations[s.call] = s; s.symbol_name = s.symbol_name || ""; }
+  stations = {}; for (const s of d.stations) stations[s.call] = s;
   const list = d.stations.sort((a, b) => b.last_heard - a.last_heard);
   $("nst").textContent = "(" + list.length + ")";
   const box = $("stlist"); box.replaceChildren();
   for (const s of list) {
-    const row = el("div", "st" + (s.call === selected ? " sel" : "")); row.dataset.call = s.call;
-    row.append(el("b", "", s.call), el("small", "", (s.lat !== undefined ? "" : "sin posición · ") + "hace " + ago(d.now - s.last_heard) + " · " + s.count + " pkt"));
-    row.onclick = () => select(s.call, true); box.appendChild(row);
+    const r = el("div", "st" + (s.call === selected ? " sel" : "")); r.dataset.call = s.call;
+    r.append(el("b", "", s.call), el("small", "", (s.lat !== undefined ? "" : "sin posición · ") + "hace " + ago(d.now - s.last_heard) + " · " + s.count + " pkt"));
+    r.onclick = () => select(s.call, true); box.appendChild(r);
     if (s.lat === undefined) continue;
     let m = markers[s.call];
-    if (!m) { m = markers[s.call] = L.circleMarker([s.lat, s.lon], {radius: 6, color: "#1f5fbf", fillColor: "#4f8ef7", fillOpacity: .85, weight: 2}).addTo(map);
-      m.bindTooltip(s.call); m.on("click", () => select(s.call, false)); }
+    if (!m) { m = markers[s.call] = L.circleMarker([s.lat, s.lon], {radius: 6, color: "#0a246a", fillColor: "#4f8ef7", fillOpacity: .85, weight: 2}).addTo(map); m.bindTooltip(s.call); m.on("click", () => select(s.call, false)); }
     m.setLatLng([s.lat, s.lon]); m.bindPopup(() => popupFor(stations[s.call]));
     m.setStyle({opacity: d.now - s.last_heard > 3600 ? .45 : 1});
   }
@@ -225,10 +533,16 @@ $("allroutes").onchange = drawRoutes;
 
 // ---- bucle ----
 async function tick() {
-  await Promise.allSettled([pollStatus(), evFeed(), rawFeed(), pollStations()]);
-  setTimeout(tick, 2000);
+  const jobs = [pollStatus(), pollStations()];
+  if (tab === "events") jobs.push(evFeed.live());
+  if (tab === "logs") jobs.push(rawFeed.live());
+  if (tab === "msgs") jobs.push(loadConvs(), liveMsgs());
+  if (tab === "radio" || !radioSel) jobs.push(pollRadio());
+  if (tab === "dw") jobs.push(loadDw(false));
+  if (tab === "net") jobs.push(pollNet());
+  await Promise.allSettled(jobs);
 }
-tick();
+(async function loop() { await tick(); setTimeout(loop, 2000); })();
 </script>
 </body>
 </html>

@@ -30,15 +30,17 @@ class StationStore:
         for k in [k for k, v in self.stations.items() if v.get("last_heard", 0) < limit]:
             del self.stations[k]
 
-    def update(self, pkt):
+    def update(self, pkt, now=None):
         """Registra un paquete. Devuelve True si cambió el mapa."""
         key = pkt.get("name") or pkt["src"]
-        now = time.time()
+        now = now or time.time()
         with self.lock:
             st = self.stations.setdefault(key, {"call": key, "count": 0, "track": []})
             st["count"] += 1
             st["last_heard"] = now
-            st["via"] = pkt["src"]
+            st["via"] = pkt.get("gateway") or pkt["src"]
+            st["gateway"] = pkt.get("gateway")
+            st["via_internet"] = bool(pkt.get("via_internet"))
             st["path"] = pkt["path"]
             st["route"] = [pkt["src"]] + list(pkt["digis"])
             st["dir"] = pkt["dir"]
@@ -60,6 +62,11 @@ class StationStore:
                 del tr[: -self.track_points]
             self.dirty = True
             return True
+
+    def reset(self):
+        with self.lock:
+            self.stations = {}
+            self.dirty = True
 
     def snapshot(self):
         with self.lock:

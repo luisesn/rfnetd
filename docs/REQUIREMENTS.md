@@ -1,6 +1,6 @@
 # rfnetd — Documento de requerimientos
 
-Versión 0.1 · 2026-11-01
+Versión 0.2 · 2026-11-01
 
 ## 1. Propósito
 
@@ -104,6 +104,52 @@ Comportamiento a replicar (script original):
   recargan al arrancar; se descartan las más antiguas que un límite
   configurable (por defecto 48 h).
 
+### 3.6 Radio Kenwood TK-780 (v0.2)
+
+- **RF-23** Control serie (9600 baudios, 8N2) con el protocolo del programa de ejemplo `tk780.js`:
+  consultar canal y estado de señal (squelch abierto), cambiar canal, conmutar squelch y scan.
+- **RF-24** Tabla de canales configurable (`[radio] channels`); reconexión automática si se desconecta el USB.
+- **RF-25** La web muestra canal, frecuencia, señal, squelch y scan, y permite cambiarlos (si hay contraseña).
+
+### 3.7 Control de Direwolf (v0.2)
+
+- **RF-26** Activar/desactivar/reiniciar el conjunto Direwolf + tncattach + captura desde la web; el estado
+  se conserva entre reinicios del servicio.
+- **RF-27** Editar las opciones habituales (MYCALL, MODEM, TXDELAY/TXTAIL/PERSIST/SLOTTIME/DWAIT, FIX_BITS, DEDUP,
+  baliza y sus campos, DIGIPEAT, IGate) sobre una **copia** del `direwolf.conf`; nunca se modifica ni se expone el original.
+- **RF-28** Validación estricta de valores (sin saltos de línea, comillas ni barras) para impedir inyección de directivas.
+
+### 3.8 Audio (v0.2)
+
+- **RF-29** Stream MP3 en directo de la tarjeta de sonido (GStreamer), arrancado solo mientras hay oyentes.
+- **RF-30** Compatible con Direwolf en paralelo mediante `dsnoop`; Direwolf se configura con `audio_in` sin tocar su fichero.
+
+### 3.9 Red (v0.2)
+
+- **RF-31** IPv6 desactivado en la interfaz (`disable_ipv6`); la web muestra su estado y los contadores de la interfaz.
+
+### 3.10 Histórico y mensajería (v0.2)
+
+- **RF-32** Logs en bruto y eventos se guardan en SQLite con ids crecientes y únicos entre reinicios; escritura
+  por lotes para cuidar la tarjeta SD; retención configurable (`[history] days`, `max_raw_rows`).
+- **RF-33** La web carga el histórico **dinámicamente**: últimas líneas al abrir, más al subir con el scroll,
+  búsqueda en servidor sobre todo el histórico, «ir a fecha» y tiempo real por encima.
+- **RF-34** Los mensajes APRS (también boletines y ack/rej) se guardan de forma permanente, agrupados en
+  conversaciones; las copias repetidas (digipeaters, reintentos) se agrupan en «×N».
+- **RF-35** En el primer arranque se importan los logs existentes y se reconstruyen las estaciones.
+
+### 3.11 Interpretación APRS (v0.2)
+
+- **RF-36** Los paquetes de tercero (`}`) reenviados por un IGate se atribuyen a la estación interior; el IGate
+  figura como pasarela en la ruta.
+- **RF-37** Las copias que Direwolf marca como digipeadas (`[0H]`) o transmitidas (`[0L]`) por esta estación no
+  actualizan el mapa ni los contadores de recepción. Las definiciones de telemetría no se tratan como mensajes.
+
+### 3.12 Interfaz (v0.2)
+
+- **RF-38** Estilo visual «WinBox legacy» (ventana gris con bordes biselados, barra de título azul, pestañas, LED,
+  barra de estado) igual que la aplicación del TK-780.
+
 ## 4. Requerimientos no funcionales
 
 - **RNF-01** Solo biblioteca estándar de Python 3.9; sin compilación.
@@ -112,9 +158,9 @@ Comportamiento a replicar (script original):
 - **RNF-03** **Seguridad:**
   - Todo texto procedente de la radio (comentarios, mensajes, indicativos) es
     no fiable y se inserta en la página solo como texto, nunca como HTML.
-  - La interfaz web es de solo lectura; por defecto escucha en todas las
-    interfaces y se puede limitar con `bind`. No incluye autenticación (ver
-    sección 6).
+  - Sin `[web] password` la web es de **solo lectura** (sin audio ni control de la radio/Direwolf). Con
+    contraseña, toda la web exige Basic auth y las órdenes POST exigen además `X-Requested-With` y JSON
+    (anti-CSRF). No hay TLS: red de confianza o VPN. Escucha en todas las interfaces salvo `bind`.
   - El servicio corre como root (necesario para tncattach, `ip` y captura);
     Direwolf se lanza con el usuario configurado (`runuser`).
   - El repositorio no contiene `direwolf.conf` ni contraseñas (el passcode de
@@ -166,7 +212,7 @@ tubería).
   paquete es equivalente. Se puede cambiar el comando en la configuración.
 - Los mensajes APRS se leen de la salida de Direwolf (que también registra lo
   recibido por IGate), no de una segunda conexión KISS/AGW.
-- **Fuera de alcance (v0.1):** autenticación en la web, envío de mensajes APRS
+- **Fuera de alcance (v0.2):** TLS, usuarios múltiples, envío de mensajes APRS
   desde la interfaz, mapas sin conexión, telemetría y meteorología detalladas
   (se muestran como comentario), IPv6.
 

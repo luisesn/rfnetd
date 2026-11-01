@@ -45,6 +45,12 @@ class ParseTests(unittest.TestCase):
         self.assertIn("confirma", humanize.aprs_packet(dict(
             aprs.parse_info("APRS", ":N0CALL-5 :ack12"), src="X", dir="rx", digis=[], path=[])))
 
+    def test_telemetry_definitions_are_not_messages(self):
+        p = aprs.parse_line("[ig] ED2ZZA-1>APMI06::ED2ZZA-1 :BITS.11111111,EA2ZZC Untzueta")
+        self.assertEqual(p["type"], "telemetry_def")
+        self.assertIn("definición de telemetría", humanize.aprs_packet(p))
+        self.assertEqual(aprs.parse_info("APRS", ":N0CALL-5 :BITS no es definicion")["type"], "message")
+
     def test_object(self):
         p = aprs.parse_info("APRS", ";LEADER   *092345z4903.50N/07201.75W>")
         self.assertEqual((p["type"], p["name"], p["live"]), ("object", "LEADER", True))
@@ -53,6 +59,30 @@ class ParseTests(unittest.TestCase):
         p = aprs.parse_info("APRS", "}EA1AAA>APRS,TCPIP,EA1IGA*:!4000.88N/00300.48W>")
         self.assertEqual(p["third_party_from"], "EA1AAA")
         self.assertIn("lat", p)
+
+    def test_igate_third_party_is_attributed_to_inner_station(self):
+        # Paquete real: EA1DGP-3 (IGate) reenvía a EB1XYZ-11 desde Internet. La posición NO es de EA1DGP-3.
+        p = aprs.parse_line("[0.2] EA1DGP-3>APDW15,WIDE1-1,WIDE2-1:}EB1XYZ-11>APLRG1,TCPIP,EA1DGP-3*:"
+                            "!L8WO>MH%^_  G.../...g...t358h00b-148-4DIGI/IGATE/METEO LoRa")
+        self.assertEqual(p["src"], "EB1XYZ-11")
+        self.assertEqual(p["gateway"], "EA1DGP-3")
+        self.assertTrue(p["via_internet"])
+        self.assertEqual(p["digis"], ["EA1DGP-3"])
+        self.assertAlmostEqual(p["lat"], 43.315, places=2)
+        self.assertAlmostEqual(p["lon"], -4.215, places=2)
+        self.assertTrue(p["comment"].startswith("..."), p["comment"])
+        s = humanize.aprs_packet(p)
+        self.assertTrue(s.startswith("EB1XYZ-11"), s)
+        self.assertIn("IGate EA1DGP-3", s)
+
+    def test_own_position_wrapped_in_third_party(self):
+        p = aprs.parse_line("[0H] EA1DGP-3>APDW15,N0CALL-5*,WIDE2-1:}EA1DGP-3>APDW15,TCPIP,EA1DGP-3*:"
+                            "!/8TNuMR(4#  !IGATE-DIGI IN83CJ")
+        self.assertEqual(p["src"], "EA1DGP-3")
+        self.assertNotIn("gateway", p)          # es su propio paquete: no hay pasarela distinta
+        self.assertEqual(p["digis"], ["N0CALL-5"])
+        self.assertAlmostEqual(p["lat"], 43.38, places=2)
+        self.assertAlmostEqual(p["lon"], -3.78, places=2)
 
     def test_path_only_real_digis(self):
         _, path, digis = aprs.path_info("APRS,EA1D1*,WIDE1*,EA1D2*,WIDE2-1")

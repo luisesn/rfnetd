@@ -15,6 +15,12 @@ user =
 kiss_host = 127.0.0.1
 kiss_port = 8001
 ready_timeout = 30
+# Si se indica, rfnetd genera la configuración efectiva a partir de este fichero + las
+# opciones editables desde la web; usar {conf} en cmd. El fichero base no se modifica.
+base_conf =
+# Dispositivo ALSA de captura para Direwolf (p. ej. rf_cap, un dsnoop, para poder escuchar a la vez).
+# Vacío = el que ponga el fichero base. La salida (TX) no se toca.
+audio_in =
 
 [tncattach]
 enabled = yes
@@ -23,21 +29,48 @@ ready_timeout = 20
 
 [network]
 interface = tnc0
+disable_ipv6 = yes
 post_up =
 
 [capture]
 enabled = yes
 cmd = tcpdump -l -nn -tttt -i {interface}
 
+[radio]
+enabled = no
+port = /dev/ttyUSB0
+command_timeout_ms = 500
+channel_delay_ms = 250
+poll_ms = 500
+reconnect_delay_ms = 3000
+# Un canal por línea, en el orden de la radio (el primero es el canal 0): NOMBRE | MHz
+channels =
+
+[audio]
+enabled = no
+device = default
+rate = 22050
+bitrate = 32
+idle_stop_seconds = 5
+
 [web]
 bind = 0.0.0.0
 port = 8088
+user = admin
+# Sin contraseña la web es solo de lectura y no hay audio ni control de la radio/Direwolf
+password =
 
 [logs]
 dir = /var/log/rfnetd
 buffer_lines = 2000
 max_bytes = 5000000
 backups = 3
+
+[history]
+# Días que se conservan logs y eventos (los mensajes APRS se guardan siempre)
+days = 30
+# Tope de líneas en bruto (tcpdump puede generar muchas)
+max_raw_rows = 400000
 
 [data]
 dir = /var/lib/rfnetd

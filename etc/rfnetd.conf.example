@@ -10,7 +10,13 @@ lon = 0.0
 [direwolf]
 enabled = yes
 # -t 0 desactiva colores ANSI en la salida
-cmd = direwolf -t 0 -c /etc/direwolf.conf
+cmd = direwolf -t 0 -c {conf}
+# Tu direwolf.conf real. rfnetd genera una COPIA con las opciones editadas desde la web y la pasa en {conf};
+# el original no se modifica. Si lo dejas vacío, pon aquí el fichero directamente en lugar de {conf}.
+base_conf = /etc/direwolf.conf
+# Captura ALSA compartida (ver etc/asound.conf.example) para escuchar el audio a la vez que Direwolf.
+# Déjalo vacío para usar el dispositivo del fichero base.
+audio_in =
 # Usuario con el que se lanza (necesita acceso al audio y al puerto serie del PTT)
 user = pi
 kiss_host = 127.0.0.1
@@ -26,6 +32,8 @@ ready_timeout = 20
 
 [network]
 interface = tnc0
+# Desactiva IPv6 en la interfaz (el kernel ya lo omite con MTU < 1280, pero así no depende de eso)
+disable_ipv6 = yes
 # Comandos a ejecutar (uno por línea, sin shell) cuando la interfaz ya existe.
 # {interface} se sustituye por el nombre de arriba. Líneas con # se ignoran.
 post_up =
@@ -37,16 +45,41 @@ enabled = yes
 # Alternativa con tshark: tshark -l -i {interface} -T fields -e frame.time -e ip.src -e ip.dst -e _ws.col.Info
 cmd = tcpdump -l -nn -tttt -i {interface}
 
+[radio]
+# Control serie de una Kenwood TK-780 (9600 baudios, 8N2). Usa el ID estable de /dev/serial/by-id/
+enabled = no
+port = /dev/ttyUSB0
+# Un canal por línea, en el orden de la radio (el primero es el canal 0): NOMBRE | MHz
+channels =
+    CHANNEL 0 | 0.000
+    APRS | 144.800
+
+[audio]
+# Escuchar el audio de la radio por la web (MP3 con GStreamer). Requiere contraseña web.
+enabled = no
+# Con Direwolf activo usa el dsnoop de etc/asound.conf.example (rf_cap); si no, plughw:1,0
+device = plughw:1,0
+rate = 22050
+bitrate = 32
+
 [web]
-# 127.0.0.1 para limitar a la propia Pi (no hay autenticación)
 bind = 0.0.0.0
 port = 8088
+user = admin
+# SIN contraseña la web es solo de lectura (sin control de radio/Direwolf ni audio).
+# CON contraseña toda la web pide login (Basic auth: úsala solo en red de confianza/VPN, no hay TLS).
+password =
 
 [logs]
 dir = /var/log/rfnetd
 buffer_lines = 2000
 max_bytes = 5000000
 backups = 3
+
+[history]
+# Días que se conservan logs y eventos (los mensajes APRS se guardan siempre)
+days = 30
+max_raw_rows = 400000
 
 [data]
 dir = /var/lib/rfnetd

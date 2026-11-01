@@ -1,4 +1,4 @@
-"""Recibe líneas de los procesos: las guarda en bruto, las traduce y actualiza el mapa."""
+"""Recibe líneas de los procesos: las guarda en bruto, las traduce y actualiza mapa e histórico."""
 import logging
 import logging.handlers
 import os
@@ -8,19 +8,20 @@ from collections import deque
 
 from . import aprs, humanize
 
-SOURCES = ("rfnetd", "direwolf", "tncattach", "capture")
+SOURCES = ("rfnetd", "direwolf", "tncattach", "capture", "radio", "audio")
 
 
 class Hub:
-    def __init__(self, cfg, store):
+    def __init__(self, cfg, store, history):
         self.cfg = cfg
         self.store = store
+        self.history = history
         self.lock = threading.Lock()
         n = cfg.int("logs", "buffer_lines")
         self.raw = {s: deque(maxlen=n) for s in SOURCES}
-        self.raw_seq = {s: 0 for s in SOURCES}
         self.events = deque(maxlen=n)
-        self.event_seq = 0
+        # los ids continúan donde lo dejó el histórico, así son únicos y crecientes entre reinicios
+        self.raw_id, self.event_id = history.max_ids()
         self.counters = {"aprs_rx": 0, "aprs_tx": 0, "ip_packets": 0, "last_aprs": None}
         self.files = {}
         self._open_files()
@@ -43,68 +44,88 @@ class Hub:
             lg.addHandler(h)
             self.files[s] = lg
 
-    def _raw(self, src, text):
+    def _raw(self, src, text, ts=None, replay=False):
+        ts = ts or time.time()
         with self.lock:
-            self.raw_seq[src] += 1
-            self.raw[src].append({"seq": self.raw_seq[src], "ts": time.time(), "text": text})
-        if src in self.files:
+            self.raw_id += 1
+            row = {"seq": self.raw_id, "ts": ts, "text": text}
+            self.raw[src].append(row)
+        self.history.add_raw(row["seq"], ts, src, text)
+        if src in self.files and not replay:
             self.files[src].info(text)
 
-    def event(self, src, level, text, **extra):
+    def event(self, src, level, text, ts=None, **extra):
+        ts = ts or time.time()
         with self.lock:
-            self.event_seq += 1
-            ev = {"seq": self.event_seq, "ts": time.time(), "src": src, "level": level, "text": text}
+            self.event_id += 1
+            ev = {"seq": self.event_id, "ts": ts, "src": src, "level": level, "text": text}
             ev.update(extra)
             self.events.append(ev)
+        self.history.add_event(ev["seq"], ts, src, level, text, extra.get("call"))
 
     def log(self, text, level="info"):
         """Mensajes del propio servicio."""
-        self._raw("rfnetd", text)
-        self.event("rfnetd", level, text)
+        self.log_src("rfnetd", text, level)
+
+    def log_src(self, src, text, level="info", ts=None, replay=False):
+        """Mensaje propio de un módulo (rfnetd, radio, audio…): log en bruto + evento."""
+        self._raw(src, text, ts, replay)
+        self.event(src, level, text, ts)
 
     def line(self, src, raw):
+        self.ingest(src, raw)
+
+    def ingest(self, src, raw, ts=None, replay=False):
         text = humanize.clean(raw)
         if not text:
             return
-        self._raw(src, text)
-        handler = {"direwolf": self._direwolf, "tncattach": self._tncattach,
-                   "capture": self._capture}.get(src)
+        if src in ("rfnetd", "radio", "audio"):
+            if replay:
+                self.log_src(src, text, "info", ts, True)
+            return
+        self._raw(src, text, ts, replay)
+        handler = {"direwolf": self._direwolf, "tncattach": self._tncattach, "capture": self._capture}.get(src)
         if handler:
-            handler(text)
+            handler(text, ts, replay)
 
-    def _direwolf(self, text):
+    def _direwolf(self, text, ts, replay):
         pkt = aprs.parse_line(text)
         if pkt:
-            with self.lock:
-                self.counters["aprs_tx" if pkt["dir"] == "tx" else "aprs_rx"] += 1
-                self.counters["last_aprs"] = time.time()
-            if pkt["dir"] != "tx":
-                self.store.update(pkt)
-            self.event("direwolf", "packet", humanize.aprs_packet(pkt), call=pkt["src"])
+            if not replay and pkt["dir"] != "digi":
+                with self.lock:
+                    self.counters["aprs_tx" if pkt["dir"] == "tx" else "aprs_rx"] += 1
+                    self.counters["last_aprs"] = time.time()
+            # tx = lo emitimos nosotros; digi = copia de un paquete que ya se registró al recibirlo
+            if pkt["dir"] not in ("tx", "digi"):
+                self.store.update(pkt, ts)
+            if pkt.get("type") == "message" and pkt["dir"] != "digi":
+                self.history.add_message(ts or time.time(), pkt)
+            self.event("direwolf", "packet", humanize.aprs_packet(pkt), ts, call=pkt["src"])
             return
         res = humanize.direwolf_line(text)
         if res:
-            self.event("direwolf", res[0], res[1])
+            self.event("direwolf", res[0], res[1], ts)
 
-    def _tncattach(self, text):
+    def _tncattach(self, text, ts, replay):
         res = humanize.tncattach_line(text)
         if res:
-            self.event("tncattach", res[0], res[1])
+            self.event("tncattach", res[0], res[1], ts)
 
-    def _capture(self, text):
+    def _capture(self, text, ts, replay):
         res = humanize.tcpdump_line(text)
         if res:
-            with self.lock:
-                self.counters["ip_packets"] += 1
-            self.event("capture", res[0], res[1])
+            if not replay:
+                with self.lock:
+                    self.counters["ip_packets"] += 1
+            self.event("capture", res[0], res[1], ts)
 
-    # --- consultas para la web ---
+    # --- consultas en vivo para la web (el histórico va por self.history) ---
     def get_raw(self, src, after=0, limit=500):
         with self.lock:
             rows = [r for r in self.raw.get(src, ()) if r["seq"] > after]
-            return rows[-limit:], self.raw_seq.get(src, 0)
+            return rows[-limit:], self.raw_id
 
     def get_events(self, after=0, limit=500):
         with self.lock:
             rows = [e for e in self.events if e["seq"] > after]
-            return rows[-limit:], self.event_seq
+            return rows[-limit:], self.event_id

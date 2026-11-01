@@ -1,0 +1,18 @@
+# Comparte la CAPTURA de la tarjeta USB entre Direwolf y el audio web de rfnetd (dsnoop).
+# Ajusta hw:1,0 (aplay -l / arecord -l). Solo define dispositivos nuevos; no cambia los de por defecto.
+# La reproducción (TX de Direwolf) sigue usando plughw:1,0 directamente.
+pcm.rf_snoop {
+    type dsnoop
+    ipc_key 5978293
+    ipc_perm 0666
+    slave {
+        pcm "hw:1,0"
+        format S16_LE
+        channels 1
+        rate 48000
+    }
+}
+pcm.rf_cap {
+    type plug
+    slave.pcm "rf_snoop"
+}
