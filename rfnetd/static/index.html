@@ -60,6 +60,8 @@ button:disabled:active { border-color: #fff #808080 #808080 #fff; padding: 3px 8
 .wb-status-panel, .wb-status-right { border: 1px solid; border-color: #808080 #fff #fff #808080; padding: 1px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wb-status-panel { flex: 1; } .wb-status-right { flex-shrink: 0; font-weight: bold; color: #006600; padding: 1px 8px; }
 .wb-status-right.bad { color: #aa0000; }
+#toast { position: fixed; right: 12px; bottom: 34px; z-index: 9999; display: none; max-width: 320px; background: #ffffe1; border: 2px solid; border-color: #fff #404040 #404040 #fff; padding: 6px 10px; cursor: pointer; box-shadow: 2px 2px 0 rgba(0,0,0,.35); }
+#toast b { display: block; color: #0a246a; }
 .msg.err { color: #aa0000; } .msg.ok { color: #006600; }
 /* mapa */
 #map { flex: 1; min-width: 0; } .leaflet-container { font: 11px Tahoma, Arial, sans-serif; }
@@ -161,7 +163,7 @@ table.kv { border-collapse: collapse; } table.kv td { padding: 2px 10px 2px 0; }
       <div class="col grow" style="flex:1">
         <div class="row"><b id="thread-title">Todos los mensajes</b>
           <input type="text" id="msgq" placeholder="buscar en mensajes…" style="width:170px">
-          <label><input type="checkbox" id="msgme"> solo para mí</label><label><input type="checkbox" id="msgack"> ver ack</label>
+          <label><input type="checkbox" id="msgme"> solo para mí</label><label><input type="checkbox" id="msgack"> ver ack</label><label title="Pitido y aviso cuando llega un mensaje para esta estación"><input type="checkbox" id="msgsound" checked> 🔔 aviso con sonido</label>
           <button id="msgall">Ver todos</button></div>
         <div class="logbox sunken" id="msglog"></div>
         <div class="row" id="txbox" style="display:none">
@@ -229,7 +231,7 @@ document.querySelectorAll("#tabs .wb-tab").forEach(t => t.onclick = () => {
   if (tab === "dw") loadDw(true);
   if (tab === "events") evFeed.ensure();
   if (tab === "logs") rawFeed.ensure();
-  if (tab === "msgs") { loadConvs(); liveMsgs(); }
+  if (tab === "msgs") { loadConvs(); liveMsgs(); unread = 0; showUnread(); }
   tick();
 });
 
@@ -429,6 +431,11 @@ function msgNode(m) {
   d.style.cssText = "margin:3px 0;padding:3px 6px;border:1px solid #c8c4bc;max-width:80%;" + (mine ? "margin-left:auto;background:#dde6f5;" : "background:#f4f2ec;") + (m.kind === "ack" || m.kind === "rej" ? "opacity:.6;" : "");
   const head = el("div", "t", new Date(m.ts * 1000).toLocaleString() + "  " + m.src + " → " + m.dest + (m.heard > 1 ? "  ×" + m.heard : "") + (m.gateway ? "  (IGate " + m.gateway + ")" : "") + (m.msgno ? "  #" + m.msgno : ""));
   d.append(head, el("div", "", m.kind === "ack" ? "✓ confirmado " + m.text.slice(3) : m.kind === "rej" ? "✗ rechazado " + m.text.slice(3) : m.text));
+  if (m.kind !== "ack" && m.kind !== "rej") {
+    let path = []; try { path = JSON.parse(m.path || "[]"); } catch (e) {}
+    d.append(el("div", "t", "ruta: " + (m.direction === "tx" ? "enviado vía " + (path.join(",") || "directo")
+      : (path.length ? path.join(" → ") : "directo (sin digipeaters)") + (m.gateway ? " · IGate " + m.gateway : ""))));
+  }
   const st = TX_STATUS[m.status];
   if (st) d.append(el("div", "t", st.replace("%", m.tries || 1)));
   d.dataset.id = m.id; d.dataset.status = m.status || ""; d.dataset.tries = m.tries || ""; return d;
@@ -465,6 +472,42 @@ async function olderMsgs(initial) {
     if (initial) box.scrollTop = box.scrollHeight; else box.scrollTop += box.scrollHeight - prev;
     if (d.rows.length) { msgOldest = d.rows[0].id; msgNewest = Math.max(msgNewest, d.rows[d.rows.length - 1].id); }
   } finally { msgLoading = false; }
+}
+// ---- aviso de mensajes para esta estación (en cualquier pestaña) ----
+let mineId = null, unread = 0, beepCtx = null, toastTimer = null;
+const store = {get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }};
+$("msgsound").checked = store.get("msgsound") !== "0";
+function beep() {
+  try {
+    beepCtx = beepCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (beepCtx.state === "suspended") beepCtx.resume();
+    [[880, 0], [1175, .18]].forEach(([f, t]) => {
+      const o = beepCtx.createOscillator(), g = beepCtx.createGain(), at = beepCtx.currentTime + t;
+      o.type = "sine"; o.frequency.value = f; g.gain.setValueAtTime(.0001, at); g.gain.exponentialRampToValueAtTime(.25, at + .02); g.gain.exponentialRampToValueAtTime(.0001, at + .16);
+      o.connect(g); g.connect(beepCtx.destination); o.start(at); o.stop(at + .18);
+    });
+  } catch (e) {}
+}
+$("msgsound").onchange = () => { store.set("msgsound", $("msgsound").checked ? "1" : "0"); if ($("msgsound").checked) { beep(); try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch (e) {} } };
+document.addEventListener("click", () => { if (!beepCtx) { try { beepCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } }, {once: true});
+function showUnread() {
+  document.querySelector('#tabs [data-t="msgs"]').textContent = unread ? `Mensajes (${unread})` : "Mensajes";
+  document.title = (unread ? `(${unread}) ` : "") + "Interface <rfnetd>";
+}
+function notifyMsg(m) {
+  unread++; showUnread();
+  if (!$("msgsound").checked) return;
+  beep();
+  const t = $("toast"); t.replaceChildren(el("b", "", "Mensaje de " + m.src), el("div", "", m.text.slice(0, 120)));
+  t.style.display = "block"; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = "none", 20000);
+  t.onclick = () => { t.style.display = "none"; document.querySelector('#tabs [data-t="msgs"]').click(); selectConv(m.conv, m.src); };
+  try { if (window.Notification && Notification.permission === "granted" && document.hidden) new Notification("Mensaje APRS de " + m.src, {body: m.text}); } catch (e) {}
+}
+async function pollMine() {
+  if (mineId === null) { const d = await getJSON("/api/messages?limit=1"); me = d.me; mineId = d.rows.length ? d.rows[d.rows.length - 1].id : 0; return; }
+  const d = await getJSON("/api/messages?" + qs({after: mineId || -1, to: me, limit: 50}));
+  for (const m of d.rows) { mineId = Math.max(mineId, m.id); if (m.kind === "msg" && m.direction !== "tx") notifyMsg(m); }
+  if (tab === "msgs" && unread) { unread = 0; showUnread(); }
 }
 async function loadTx() {
   txInfo = await getJSON("/api/tx");
@@ -580,7 +623,7 @@ $("allroutes").onchange = drawRoutes;
 
 // ---- bucle ----
 async function tick() {
-  const jobs = [pollStatus(), pollStations()];
+  const jobs = [pollStatus(), pollStations(), pollMine()];
   if (tab === "events") jobs.push(evFeed.live());
   if (tab === "logs") jobs.push(rawFeed.live());
   if (tab === "msgs") jobs.push(loadConvs(), liveMsgs());
@@ -591,5 +634,6 @@ async function tick() {
 }
 (async function loop() { await tick(); setTimeout(loop, 2000); })();
 </script>
+<div id="toast"></div>
 </body>
 </html>
