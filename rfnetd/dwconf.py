@@ -19,8 +19,29 @@ SIMPLE = {
     "PERSIST": ("persist", "PERSIST (0-255)", "int", (0, 255)),
     "SLOTTIME": ("slottime", "SLOTTIME (×10 ms)", "int", (0, 255)),
     "DWAIT": ("dwait", "DWAIT (×10 ms)", "int", (0, 255)),
+    "PACLEN": ("paclen", "PACLEN (bytes)", "int", (1, 2048)),
     "FIX_BITS": ("fix_bits", "Corrección de bits (FIX_BITS)", "choice", ["0", "1", "2", "3", "4", "5", "6"]),
     "DEDUPE": ("dedup", "Duplicados: segundos (DEDUPE)", "int", (0, 600)),
+}
+# clave -> (valor por defecto de Direwolf 1.6, ayuda). El valor por defecto es el que se usa si el fichero no define la directiva.
+INFO = {
+    "mycall": ("N0CALL", "Indicativo con el que Direwolf transmite y se identifica (con SSID, p. ej. EA1XXX-5)."),
+    "modem": ("1200", "Velocidad en baudios. 1200 es la de APRS en VHF (AFSK); 9600 solo para canales de datos."),
+    "txdelay": ("25", "Tiempo entre pulsar PTT y empezar los datos, para que el transmisor se estabilice. Si el otro extremo pierde el principio de las tramas, súbelo (30-50)."),
+    "txtail": ("10", "Tiempo que se mantiene la portadora tras el último dato, para no cortar el final de la trama."),
+    "persist": ("63", "Probabilidad CSMA (0-255): con el canal libre, transmite en cada ranura con probabilidad (valor+1)/256. Menor = más cortés, más espera."),
+    "slottime": ("10", "Duración de cada ranura CSMA: cuánto se espera entre intentos si el canal estaba ocupado."),
+    "dwait": ("0", "Espera extra tras quedar libre el canal antes de transmitir. Útil para dejar pasar confirmaciones de otras estaciones."),
+    "paclen": ("256", "Tamaño máximo (bytes) de la parte de datos de las tramas que genera Direwolf en modo conectado. No recorta las tramas que llegan por KISS (p. ej. tncattach, cuyo MTU manda)."),
+    "fix_bits": ("1", "Intentos de reparar tramas con errores de CRC: 0 = ninguno, más = más tramas recuperadas pero algo más de riesgo de falsos positivos."),
+    "dedup": ("30", "Segundos durante los que se descarta un paquete idéntico ya repetido, para que el digipeater no lo reenvíe dos veces."),
+    "beacon": ("", "Transmite automáticamente la posición de la estación."),
+    "beacon_every": ("", "Minutos entre balizas. Para un digipeater fijo, 30 o más."),
+    "beacon_via": ("", "Ruta de la baliza. Un digi fijo suele usar WIDE1-1 o vacío; WIDE2-1 la propaga más lejos."),
+    "beacon_comment": ("", "Texto que acompaña a la posición."),
+    "digipeat": ("", "Repite los paquetes que oye según el path (WIDE1-1, WIDE2-n…)."),
+    "digi_filter": ("", "Excluye o admite paquetes en el digipeater. Ej.: «! b/EA1XXX-3» no repite a esa estación. Vacío = sin filtro."),
+    "igate": ("", "Pasa lo recibido por radio a APRS-IS (Internet) y viceversa."),
 }
 LEGACY = {"DEDUP": "DEDUPE"}   # Direwolf 1.6 no reconoce DEDUP; se corrige en la copia generada
 FILTER_RE = re.compile(r"^[A-Za-z0-9/!&|()*., _-]{0,120}$")
@@ -86,17 +107,23 @@ def parse_base(text):
     return vals, avail
 
 
+def _info(field):
+    default, help_ = INFO.get(field["key"], ("", ""))
+    field.update(default=default, help=help_)
+    return field
+
+
 def schema(avail):
     out = []
     for key, (opt, label, kind, lim) in SIMPLE.items():
-        out.append({"key": opt, "label": label, "type": kind, "limits": lim})
+        out.append(_info({"key": opt, "label": label, "type": kind, "limits": lim}))
     for g, (label, _) in GROUPS.items():
-        out.append({"key": g, "label": label, "type": "bool", "available": avail.get(g, False)})
+        out.append(_info({"key": g, "label": label, "type": "bool", "available": avail.get(g, False)}))
         if g == "beacon":
             for opt, (lbl, _, kind, lim) in BEACON_FIELDS.items():
-                out.append({"key": opt, "label": lbl, "type": kind, "limits": lim, "depends": "beacon"})
+                out.append(_info({"key": opt, "label": lbl, "type": kind, "limits": lim, "depends": "beacon"}))
         if g == "digipeat":
-            out.append({"key": FILTER_FIELD[0], "label": FILTER_FIELD[1], "type": "filter", "limits": None, "depends": "digipeat"})
+            out.append(_info({"key": FILTER_FIELD[0], "label": FILTER_FIELD[1], "type": "filter", "limits": None, "depends": "digipeat"}))
     return out
 
 

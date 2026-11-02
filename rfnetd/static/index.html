@@ -314,8 +314,10 @@ async function loadDw(rebuild) {
     else for (const s of d.schema) {
       const row = el("div", "row"); row.appendChild(el("span", "lbl", s.label));
       const inp = fieldInput(s, d.values[s.key]); if (s.depends) inp.dataset.dep = s.depends;
-      row.appendChild(inp); if (s.type === "bool" && s.available === false) row.appendChild(el("span", "unit", "no está en tu direwolf.conf"));
+      row.appendChild(inp); if (s.default) row.appendChild(el("span", "unit", "por defecto: " + s.default));
+      if (s.type === "bool" && s.available === false) row.appendChild(el("span", "unit", "no está en tu direwolf.conf"));
       f.appendChild(row);
+      if (s.help) { const h = el("div", "unit", s.help); h.style.cssText = "margin:0 0 6px 8px;max-width:60em"; f.appendChild(h); }
     }
     syncDeps();
     $("d-note").textContent = d.managed ? "Se aplican sobre una copia: tu direwolf.conf no se modifica y el passcode de APRS-IS no sale del equipo." : "";

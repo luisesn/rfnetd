@@ -93,3 +93,19 @@ class DigiFilterTests(unittest.TestCase):
         self.assertNotIn("\nDEDUP 30", out)
         self.assertEqual(dwconf.parse_base(BASE)[0]["dedup"], "30")
         self.assertIn("DEDUPE 60", dwconf.generate(BASE, {"dedup": 60}))
+
+
+class PaclenAndInfoTests(unittest.TestCase):
+    def test_paclen(self):
+        self.assertEqual(dwconf.parse_base(BASE + "PACLEN 128\n")[0]["paclen"], "128")
+        self.assertIn("PACLEN 100", dwconf.generate(BASE, {"paclen": 100}).splitlines())
+        out = dwconf.generate(BASE + "PACLEN 128\n", {"paclen": 100})
+        self.assertEqual([l for l in out.splitlines() if l.startswith("PACLEN")], ["PACLEN 100"])
+        for bad in (0, 3000):
+            with self.assertRaises(ValueError):
+                dwconf.validate({"paclen": bad})
+
+    def test_schema_has_help_for_every_field(self):
+        for f in dwconf.schema({}):
+            self.assertTrue(f["help"], f["key"])
+        self.assertEqual(next(f for f in dwconf.schema({}) if f["key"] == "paclen")["default"], "256")
