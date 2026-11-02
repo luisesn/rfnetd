@@ -120,3 +120,10 @@ class HumanizeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SecretRedactionTests(unittest.TestCase):
+    def test_igate_login_passcode_hidden(self):
+        from rfnetd.pipeline import SECRET_RE
+        self.assertEqual(SECRET_RE.sub(r"\1***", "[rx>ig] user N0CALL-5 pass 12345 vers Dire-Wolf 1.6"),
+                         "[rx>ig] user N0CALL-5 pass *** vers Dire-Wolf 1.6")

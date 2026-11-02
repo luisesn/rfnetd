@@ -2,12 +2,15 @@
 import logging
 import logging.handlers
 import os
+import re
 import threading
 import time
 from collections import deque
 
 from . import aprs, humanize
 
+# Con «-d i» Direwolf escribe «[rx>ig] user CALL pass PASSCODE …» al conectar: el passcode no debe llegar a logs ni histórico.
+SECRET_RE = re.compile(r"(\buser \S+ pass )\S+")
 SOURCES = ("rfnetd", "direwolf", "tncattach", "capture", "radio", "audio")
 
 
@@ -80,6 +83,7 @@ class Hub:
         text = humanize.clean(raw)
         if not text:
             return
+        text = SECRET_RE.sub(r"\1***", text)
         if src in ("rfnetd", "radio", "audio"):
             if replay:
                 self.log_src(src, text, "info", ts, True)
