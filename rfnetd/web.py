@@ -9,6 +9,7 @@ import hmac
 import json
 import os
 import queue
+import re
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -53,7 +54,8 @@ def make_server(cfg, hub, store, supervisor, radio, audio, controls, history, tx
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
+            if "Cache-Control" not in (extra or {}):
+                self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             for k, v in (extra or {}).items():
                 self.send_header(k, v)
@@ -99,6 +101,10 @@ def make_server(cfg, hub, store, supervisor, radio, audio, controls, history, tx
             if u.path in ("/", "/index.html"):
                 with open(os.path.join(STATIC, "index.html"), "rb") as f:
                     return self._send(200, f.read(), "text/html; charset=utf-8")
+            m = re.fullmatch(r"/symbols/(aprs-symbols-48-[012]\.png)", u.path)
+            if m:   # hojas de iconos APRS (aprs.fi, ver static/symbols/COPYRIGHT.md)
+                with open(os.path.join(STATIC, "symbols", m[1]), "rb") as f:
+                    return self._send(200, f.read(), "image/png", {"Cache-Control": "max-age=86400"})
             if u.path == "/api/status":
                 st = supervisor.status()
                 with hub.lock:

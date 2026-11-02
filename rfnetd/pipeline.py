@@ -23,7 +23,7 @@ class Hub:
         # los ids continúan donde lo dejó el histórico, así son únicos y crecientes entre reinicios
         self.raw_id, self.event_id = history.max_ids()
         self.tx = None   # Transmitter, se asigna desde __main__
-        self.counters = {"aprs_rx": 0, "aprs_tx": 0, "ip_packets": 0, "last_aprs": None}
+        self.counters = {"aprs_rx": 0, "aprs_ig": 0, "aprs_tx": 0, "ip_packets": 0, "last_aprs": None}
         self.files = {}
         self._open_files()
 
@@ -94,7 +94,7 @@ class Hub:
         if pkt:
             if not replay and pkt["dir"] != "digi":
                 with self.lock:
-                    self.counters["aprs_tx" if pkt["dir"] == "tx" else "aprs_rx"] += 1
+                    self.counters[{"tx": "aprs_tx", "ig": "aprs_ig"}.get(pkt["dir"], "aprs_rx")] += 1
                     self.counters["last_aprs"] = time.time()
             # tx = lo emitimos nosotros; digi = copia de un paquete que ya se registró al recibirlo
             if pkt["dir"] not in ("tx", "digi"):

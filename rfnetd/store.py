@@ -44,6 +44,8 @@ class StationStore:
             st["path"] = pkt["path"]
             st["route"] = [pkt["src"]] + list(pkt["digis"])
             st["dir"] = pkt["dir"]
+            k = "ig_count" if pkt["dir"] == "ig" else "rf_count"
+            st[k] = st.get(k, 0) + 1
             if pkt.get("type") == "status":
                 st["status"] = pkt["text"]
             if "lat" not in pkt:

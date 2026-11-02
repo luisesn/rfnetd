@@ -64,6 +64,10 @@ button:disabled:active { border-color: #fff #808080 #808080 #fff; padding: 3px 8
 #toast b { display: block; color: #0a246a; }
 .msg.err { color: #aa0000; } .msg.ok { color: #006600; }
 /* mapa */
+.sym { background-repeat: no-repeat; border-radius: 50%; } .sym.is { box-shadow: 0 0 0 2px #8e44ad; opacity: .75; } .sym.sel { box-shadow: 0 0 0 3px #0a246a; }
+.sym .ov { position: absolute; inset: 0; background-repeat: no-repeat; }
+.legend { background: #fff; padding: 4px 8px; border: 1px solid #888; line-height: 16px; } .legend i { display: inline-block; width: 26px; height: 0; border-top: 3px solid; vertical-align: middle; margin-right: 6px; }
+.arrow { font-size: 11px; line-height: 11px; text-align: center; text-shadow: 0 0 2px #fff, 0 0 2px #fff; }
 #map { flex: 1; min-width: 0; } .leaflet-container { font: 11px Tahoma, Arial, sans-serif; }
 #side { width: 270px; flex-shrink: 0; display: flex; flex-direction: column; }
 #stlist { flex: 1; overflow: auto; }
@@ -100,6 +104,7 @@ table.kv { border-collapse: collapse; } table.kv td { padding: 2px 10px 2px 0; }
       <div id="map" class="sunken"></div>
       <div id="side">
         <div class="row"><label><input type="checkbox" id="allroutes"> Rutas de todas</label></div>
+        <div class="row"><label><input type="checkbox" id="showis"> Estaciones solo de Internet</label></div>
         <div class="row"><b>Estaciones <span id="nst"></span></b></div>
         <div class="sunken" id="stlist"></div>
       </div>
@@ -253,7 +258,7 @@ async function pollStatus() {
     mk(s.interface, s.interface_up);
     mk("radio", s.radio.enabled ? s.radio.connected : null);
     const c = s.counters;
-    $("sb-cnt").textContent = `APRS rx ${c.aprs_rx} · tx ${c.aprs_tx} · IP ${c.ip_packets}` + (c.last_aprs ? ` · último APRS hace ${ago(s.now - c.last_aprs)}` : "");
+    $("sb-cnt").textContent = `APRS radio ${c.aprs_rx} · Internet ${c.aprs_ig || 0} · tx ${c.aprs_tx} · IP ${c.ip_packets}` + (c.last_aprs ? ` · último APRS hace ${ago(s.now - c.last_aprs)}` : "");
     $("sb-link").textContent = control ? "link ok" : "solo lectura"; $("sb-link").className = "wb-status-right" + (control ? "" : " bad");
     const a = s.audio; $("a-state").textContent = a.running ? "capturando" : "en espera"; $("a-dev").textContent = a.device; $("a-n").textContent = a.listeners;
     $("a-play").disabled = !control || !a.enabled || !!audioEl;
@@ -588,28 +593,82 @@ function popupFor(s) {
   const lines = [s.symbol_name, `${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}`,
     s.speed_kn ? `${Math.round(s.speed_kn * 1.852)} km/h` + (s.course !== undefined ? `, rumbo ${s.course}°` : "") : null,
     s.comment ? "«" + s.comment.trim() + "»" : null, `${s.count} paquetes, hace ${ago(Date.now() / 1000 - s.last_heard)}`,
+    isOnly(s) ? "solo oída por Internet (APRS-IS)" : s.via_internet ? "llegó de Internet por el IGate " + s.gateway : null,
     "ruta: " + s.route.join(" → ") + " → " + (own ? own.callsign : "yo")].filter(Boolean);
   for (const l of lines) d.append(el("div", "", l));
   return d;
 }
-function routePoints(s) {
-  const pts = [], missing = [];
-  for (const c of s.route) { const st = stations[c]; if (st && st.lat !== undefined) pts.push([st.lat, st.lon]); else if (c !== s.call && c !== s.via) missing.push(c); }
-  if (s.lat !== undefined) pts[0] = [s.lat, s.lon];
-  if (own) pts.push([own.lat, own.lon]);
-  return {pts, missing};
+const isOnly = s => !s.rf_count && s.dir === "ig";   // solo oída por Internet (APRS-IS)
+const C_RF = "#1a5fb4", C_IS = "#8e44ad";
+// Tramos de la ruta de s: [{a, b, kind: "rf"|"is", gap, last}]. Los digis sin posición se saltan y el tramo se marca «gap».
+function routeSegments(s) {
+  const nodes = [[s.lat, s.lon]];
+  let gap = false;
+  const segs = [];
+  const hops = s.route.slice(1);
+  let prev = nodes[0], first = true;
+  const push = (to, g, last) => {
+    const internet = first && !!s.via_internet && !!s.gateway;
+    segs.push({a: prev, b: to, kind: internet ? "is" : "rf", gap: g, last}); prev = to; first = false;
+  };
+  if (s.dir === "ig") { if (own) segs.push({a: prev, b: [own.lat, own.lon], kind: "is", gap: false, last: true}); return segs; }
+  let g = false;
+  for (const c of hops) { const st = stations[c]; if (st && st.lat !== undefined) { push([st.lat, st.lon], g, false); g = false; } else g = true; }
+  if (own) push([own.lat, own.lon], g, true);
+  return segs;
+}
+function arrowAt(a, b, color) {
+  const p1 = map.latLngToContainerPoint(a), p2 = map.latLngToContainerPoint(b);
+  if (Math.hypot(p2.x - p1.x, p2.y - p1.y) < 40) return null;
+  const ang = Math.atan2(p2.x - p1.x, -(p2.y - p1.y)) * 180 / Math.PI;
+  const d = el("div", "arrow", "▲"); d.style.color = color; d.style.transform = `rotate(${ang}deg)`;
+  return L.marker([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], {interactive: false, icon: L.divIcon({html: d, className: "", iconSize: [11, 11], iconAnchor: [5, 5]})});
 }
 function drawRoutes() {
   routeLayer.clearLayers(); trackLayer.clearLayers();
   const list = $("allroutes").checked ? Object.values(stations) : (selected && stations[selected] ? [stations[selected]] : []);
   for (const s of list) {
-    if (s.lat === undefined) continue;
-    const {pts, missing} = routePoints(s);
-    if (pts.length > 1) L.polyline(pts, {color: s.call === selected ? "#0a246a" : "#888", weight: s.call === selected ? 3 : 1.5, dashArray: "6 6", opacity: .8}).bindTooltip(missing.length ? "sin posición: " + missing.join(", ") : "ruta").addTo(routeLayer);
+    if (s.lat === undefined || (isOnly(s) && !$("showis").checked && s.call !== selected)) continue;
+    const sel = s.call === selected, age = Date.now() / 1000 - s.last_heard > 3600 ? .5 : 1;
+    for (const g of routeSegments(s)) {
+      const is = g.kind === "is", color = is ? C_IS : C_RF;
+      const o = {color, weight: (g.last ? 3.5 : 2) * (sel ? 1.3 : 1) * (is ? .8 : 1), opacity: (sel ? .95 : .55) * age * (g.gap ? .5 : 1),
+                 dashArray: is ? "2 7" : g.gap ? "4 8" : null, lineCap: "round"};
+      L.polyline([g.a, g.b], o).bindTooltip(s.call + (is ? " · vía Internet (APRS-IS)" : " · radio") + (g.gap ? " · hay digis sin posición" : "")).addTo(routeLayer);
+      const ar = arrowAt(g.a, g.b, color); if (ar && (sel || list.length < 8)) ar.setOpacity(o.opacity).addTo(routeLayer);
+    }
   }
   const s = stations[selected];
   if (s && s.track && s.track.length > 1) L.polyline(s.track.map(p => [p[0], p[1]]), {color: "#d9822b", weight: 2}).addTo(trackLayer);
 }
+// Iconos APRS: hojas de aprs.fi (16 columnas × 6 filas de 24 px; la 2 son los caracteres de overlay)
+const SYM = 24;
+function spriteCell(sheet, ch) {
+  const i = ch.charCodeAt(0) - 33; if (!(i >= 0 && i < 94)) return null;
+  const d = el("div", "ov");
+  d.style.backgroundImage = `url(${rel("/symbols/aprs-symbols-48-" + sheet + ".png")})`;
+  d.style.backgroundSize = `${16 * SYM}px ${6 * SYM}px`;
+  d.style.backgroundPosition = `-${(i % 16) * SYM}px -${Math.floor(i / 16) * SYM}px`;
+  return d;
+}
+function symIcon(s, sel) {
+  const t = s.table || "/", base = spriteCell(t === "/" ? 0 : 1, s.symbol || "");
+  const d = el("div", "sym" + (isOnly(s) ? " is" : "") + (sel ? " sel" : ""));
+  d.style.cssText += `width:${SYM}px;height:${SYM}px;position:relative`;
+  if (base) { d.appendChild(base); if (!/[\/\\]/.test(t)) { const ov = spriteCell(2, t); if (ov) d.appendChild(ov); } }
+  else { d.style.background = "#4f8ef7"; d.style.border = "2px solid #0a246a"; d.style.boxSizing = "border-box"; }
+  return L.divIcon({html: d, className: "", iconSize: [SYM, SYM], iconAnchor: [SYM / 2, SYM / 2]});
+}
+const legend = L.control({position: "bottomright"});
+legend.onAdd = () => {
+  const d = el("div", "legend");
+  for (const [c, dash, txt] of [[C_RF, "solid", "Radio (flecha: sentido de llegada)"], [C_IS, "dotted", "Internet (APRS-IS / IGate)"], ["#999", "dashed", "Hay digis sin posición"]]) {
+    const row = el("div"); const i = el("i"); i.style.borderTopColor = c; i.style.borderTopStyle = dash; row.append(i, txt); d.appendChild(row);
+  }
+  d.appendChild(el("div", "", "Anillo violeta: solo oída por Internet"));
+  return d;
+};
+legend.addTo(map);
 function select(call, pan) {
   selected = call; drawRoutes();
   document.querySelectorAll(".st").forEach(n => n.classList.toggle("sel", n.dataset.call === call));
@@ -623,17 +682,22 @@ async function pollStations() {
   const box = $("stlist"); box.replaceChildren();
   for (const s of list) {
     const r = el("div", "st" + (s.call === selected ? " sel" : "")); r.dataset.call = s.call;
-    r.append(el("b", "", s.call), el("small", "", (s.lat !== undefined ? "" : "sin posición · ") + "hace " + ago(d.now - s.last_heard) + " · " + s.count + " pkt"));
+    r.append(el("b", "", s.call), el("small", "", (isOnly(s) ? "Internet · " : "") + (s.lat !== undefined ? "" : "sin posición · ") + "hace " + ago(d.now - s.last_heard) + " · " + s.count + " pkt"));
     r.onclick = () => select(s.call, true); box.appendChild(r);
     if (s.lat === undefined) continue;
+    if (isOnly(s) && !$("showis").checked && s.call !== selected) { if (markers[s.call]) { markers[s.call].remove(); delete markers[s.call]; } continue; }
     let m = markers[s.call];
-    if (!m) { m = markers[s.call] = L.circleMarker([s.lat, s.lon], {radius: 6, color: "#0a246a", fillColor: "#4f8ef7", fillOpacity: .85, weight: 2}).addTo(map); m.bindTooltip(s.call); m.on("click", () => select(s.call, false)); }
-    m.setLatLng([s.lat, s.lon]); m.bindPopup(() => popupFor(stations[s.call]));
-    m.setStyle({opacity: d.now - s.last_heard > 3600 ? .45 : 1});
+    if (!m) { m = markers[s.call] = L.marker([s.lat, s.lon], {icon: symIcon(s, false)}).addTo(map); m.bindTooltip(s.call); m.on("click", () => select(s.call, false)); }
+    m.setLatLng([s.lat, s.lon]); m.setIcon(symIcon(s, s.call === selected)); m.bindPopup(() => popupFor(stations[s.call]));
+    m.setOpacity(d.now - s.last_heard > 3600 ? .5 : 1); m.setZIndexOffset(s.call === selected ? 1000 : 0);
   }
+  for (const c of Object.keys(markers)) if (!stations[c] || stations[c].lat === undefined) { markers[c].remove(); delete markers[c]; }
   drawRoutes();
 }
 $("allroutes").onchange = drawRoutes;
+try { $("showis").checked = localStorage.getItem("rfnetd.showis") === "1"; } catch (e) {}
+$("showis").onchange = () => { try { localStorage.setItem("rfnetd.showis", $("showis").checked ? "1" : "0"); } catch (e) {} pollStations(); };
+map.on("zoomend", drawRoutes);
 
 // ---- bucle ----
 async function tick() {
