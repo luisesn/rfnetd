@@ -211,9 +211,12 @@ const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 const hhmmss = ts => new Date(ts * 1000).toLocaleTimeString();
 const ago = s => s < 90 ? Math.round(s) + " s" : s < 5400 ? Math.round(s / 60) + " min" : (s / 3600).toFixed(1) + " h";
-const getJSON = async url => { const r = await fetch(url, {cache: "no-store"}); if (!r.ok) throw new Error(r.status); return r.json(); };
+// Funciona también detrás de un proxy con prefijo (p. ej. https://host/aprs): las rutas son relativas a la página.
+const BASE = (p => /\/$/.test(p) || /\.[a-z]+$/i.test(p) ? p.replace(/[^/]*$/, "") : p + "/")(location.pathname);
+const rel = url => BASE + url.replace(/^\//, "");
+const getJSON = async url => { const r = await fetch(rel(url), {cache: "no-store"}); if (!r.ok) throw new Error(r.status); return r.json(); };
 async function post(url, body) {
-  const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json", "X-Requested-With": "rfnetd"}, body: JSON.stringify(body)});
+  const r = await fetch(rel(url), {method: "POST", headers: {"Content-Type": "application/json", "X-Requested-With": "rfnetd"}, body: JSON.stringify(body)});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
   return d;
@@ -339,7 +342,7 @@ $("a-play").onclick = () => {
   actx = actx || new (window.AudioContext || window.webkitAudioContext)();
   gain = gain || actx.createGain(); gain.gain.value = +$("a-vol").value;
   analyser = analyser || actx.createAnalyser(); analyser.fftSize = 512;
-  audioEl = new Audio(); audioEl.src = "/stream?t=" + Date.now();
+  audioEl = new Audio(); audioEl.src = rel("/stream") + "?t=" + Date.now();
   const src = actx.createMediaElementSource(audioEl); src.connect(gain); gain.connect(analyser); analyser.connect(actx.destination);
   audioEl.onerror = () => { say("a-msg", "Error de audio: " + (audioEl && audioEl.error ? audioEl.error.message || "no se pudo abrir el stream" : ""), false); stopAudio(); };
   audioEl.play().then(() => say("a-msg", "Escuchando", true)).catch(e => { say("a-msg", e.message, false); stopAudio(); });
