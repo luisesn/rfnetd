@@ -307,8 +307,10 @@ function fieldInput(f, val, avail) {
   return inp;
 }
 function syncDeps() {
-  const b = document.querySelector('#d-form [data-key="beacon"]');
-  document.querySelectorAll("#d-form [data-dep]").forEach(i => i.disabled = !control || !(b && b.checked));
+  document.querySelectorAll("#d-form [data-dep]").forEach(i => {
+    const b = document.querySelector(`#d-form [data-key="${i.dataset.dep}"]`);
+    i.disabled = !control || !(b && b.checked);
+  });
 }
 async function loadDw(rebuild) {
   const d = await getJSON("/api/direwolf");

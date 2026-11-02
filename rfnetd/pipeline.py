@@ -101,7 +101,11 @@ class Hub:
                 self.store.update(pkt, ts)
             if pkt.get("type") == "message" and pkt["dir"] != "digi":
                 self.history.add_message(ts or time.time(), pkt)
-            self.event("direwolf", "packet", humanize.aprs_packet(pkt), ts, call=pkt["src"])
+            # El flujo de APRS-IS (decenas por hora) no va a Eventos; sí los mensajes para esta estación.
+            # Sigue en el log de Direwolf, en el mapa y en el histórico de mensajes.
+            mine = pkt.get("type") == "message" and (pkt.get("to") or "").upper() == self.cfg.get("station", "callsign").upper()
+            if pkt["dir"] != "ig" or mine:
+                self.event("direwolf", "packet", humanize.aprs_packet(pkt), ts, call=pkt["src"])
             if self.tx and not replay:
                 self.tx.on_packet(pkt)
             return

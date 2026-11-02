@@ -39,12 +39,18 @@ INFO = {
     "beacon_every": ("", "Minutos entre balizas. Para un digipeater fijo, 30 o más."),
     "beacon_via": ("", "Ruta de la baliza. Un digi fijo suele usar WIDE1-1 o vacío; WIDE2-1 la propaga más lejos."),
     "beacon_comment": ("", "Texto que acompaña a la posición."),
+    "beacon_overlay": ("", "Carácter sobre el icono. Para un digipeater con IGate lo convencional es I; S es de SSn-N."),
+    "ig_filter": ("", "Qué paquetes de Internet se pueden transmitir por radio. «t/m» = solo mensajes. Vacío = sin filtro (Direwolf ya solo pasa mensajes a estaciones oídas)."),
+    "ig_beacon": ("", "Envía tu posición directamente a APRS-IS, sin radio, para aparecer en aprs.fi aunque nadie repita tu baliza."),
     "digipeat": ("", "Repite los paquetes que oye según el path (WIDE1-1, WIDE2-n…)."),
     "digi_filter": ("", "Excluye o admite paquetes en el digipeater. Ej.: «! b/EA1XXX-3» no repite a esa estación. Vacío = sin filtro."),
     "igate": ("", "Pasa lo recibido por radio a APRS-IS (Internet) y viceversa."),
 }
 LEGACY = {"DEDUP": "DEDUPE"}   # Direwolf 1.6 no reconoce DEDUP; se corrige en la copia generada
 FILTER_RE = re.compile(r"^[A-Za-z0-9/!&|()*., _-]{0,120}$")
+IG_FILTER_RE = re.compile(r"^[A-Za-z0-9/!&|()*., _-]{0,120}$")
+IG_FILTER_FIELD = ("ig_filter", "Filtro hacia la radio (FILTER IG 0), p. ej. t/m = solo mensajes", "filter", None)
+IG_BEACON_FIELD = ("ig_beacon", "Baliza también a Internet (sendto=IG, sin radio)", "bool", None)
 FILTER_FIELD = ("digi_filter", "Filtro del digipeater (FILTER 0 0), p. ej. ! b/EA1DGP-3", "filter", None)
 GROUPS = {  # clave -> directivas que se comentan cuando está desactivado
     "beacon": ("Baliza APRS (PBEACON)", {"PBEACON"}),
@@ -55,6 +61,7 @@ BEACON_FIELDS = {
     "beacon_every": ("Cada (minutos)", "every", "int", (1, 1440)),
     "beacon_via": ("Vía (path)", "via", "via", None),
     "beacon_comment": ("Comentario", "comment", "text", None),
+    "beacon_overlay": ("Símbolo: overlay (letra o cifra)", "overlay", "word", None),
 }
 MARK = "# [rfnetd off] "
 
@@ -67,6 +74,18 @@ def _directive(line):
 def _first_line(lines, key):
     for i, ln in enumerate(lines):
         if _directive(ln) == key:
+            return i
+    return None
+
+
+def _is_ig_beacon(line):
+    return _directive(line) == "PBEACON" and (_field(line, "sendto") or "").upper() == "IG"
+
+
+def _main_beacon(lines):
+    """Primera PBEACON activa que sale por radio (no la de sendto=IG)."""
+    for i, ln in enumerate(lines):
+        if _directive(ln) == "PBEACON" and not _is_ig_beacon(ln):
             return i
     return None
 
@@ -98,7 +117,10 @@ def parse_base(text):
         vals[g] = bool(present)
     vals["digi_filter"] = next((ln.split(None, 3)[3] for ln in lines if _directive(ln) == "FILTER"
                                 and ln.split()[1:3] == ["0", "0"] and len(ln.split()) > 3), "")
-    b = _first_line(lines, "PBEACON")
+    vals["ig_filter"] = next((ln.split(None, 3)[3] for ln in lines if _directive(ln) == "FILTER"
+                              and [x.upper() for x in ln.split()[1:3]] == ["IG", "0"] and len(ln.split()) > 3), "")
+    vals["ig_beacon"] = any(_is_ig_beacon(ln) for ln in lines)
+    b = _main_beacon(lines)
     src = lines[b] if b is not None else next((ln for ln in _commented_lines(lines) if _directive(ln) == "PBEACON"), "")
     for opt, (_, field, kind, _) in BEACON_FIELDS.items():
         v = _field(src, field)
@@ -122,6 +144,9 @@ def schema(avail):
         if g == "beacon":
             for opt, (lbl, _, kind, lim) in BEACON_FIELDS.items():
                 out.append(_info({"key": opt, "label": lbl, "type": kind, "limits": lim, "depends": "beacon"}))
+        if g == "igate":
+            for fld in (IG_FILTER_FIELD, IG_BEACON_FIELD):
+                out.append(_info({"key": fld[0], "label": fld[1], "type": fld[2], "limits": None, "depends": "igate"}))
         if g == "digipeat":
             out.append(_info({"key": FILTER_FIELD[0], "label": FILTER_FIELD[1], "type": "filter", "limits": None, "depends": "digipeat"}))
     return out
@@ -157,8 +182,13 @@ def validate(opts):
             clean[key] = str(v)
         elif t == "filter":
             v = str(v).strip()
-            if not FILTER_RE.match(v):
+            if not (IG_FILTER_RE if key == "ig_filter" else FILTER_RE).match(v):
                 raise ValueError("filtro no válido (solo letras, cifras y / ! & | ( ) * , . _ -)")
+            clean[key] = v
+        elif t == "word":
+            v = str(v).strip().upper()
+            if not re.match(r"^[A-Z0-9]$", v):
+                raise ValueError("overlay: una letra o cifra")
             clean[key] = v
         elif t == "text":
             v = str(v)
@@ -202,8 +232,12 @@ def generate(base_text, opts, audio_in=None):
         lines = [ln for ln in lines if not (_directive(ln) == "FILTER" and ln.split()[1:3] == ["0", "0"])]
         if opts["digi_filter"]:
             lines.append("FILTER 0 0 %s" % opts["digi_filter"])
-    # 3) campos de la baliza (solo la primera línea PBEACON activa)
-    b = _first_line(lines, "PBEACON")
+    if "ig_filter" in opts:     # un solo FILTER IG 0; vacío = sin filtro
+        lines = [ln for ln in lines if not (_directive(ln) == "FILTER" and [x.upper() for x in ln.split()[1:3]] == ["IG", "0"])]
+        if opts["ig_filter"]:
+            lines.append("FILTER IG 0 %s" % opts["ig_filter"])
+    # 3) campos de la baliza (solo la primera línea PBEACON activa de radio)
+    b = _main_beacon(lines)
     if b is not None:
         for opt, (_, field, kind, _) in BEACON_FIELDS.items():
             if opt not in opts:
@@ -213,6 +247,15 @@ def generate(base_text, opts, audio_in=None):
                 lines[b] = re.sub(r'(^|\s)%s=("[^"]*"|\S+)' % field, lambda m: m.group(1) + "%s=%s" % (field, val), lines[b], count=1)
             else:
                 lines[b] += " %s=%s" % (field, val)
+    if "ig_beacon" in opts:     # copia de la baliza de radio que solo va a APRS-IS (no transmite por radio)
+        have = [i for i, ln in enumerate(lines) if _is_ig_beacon(ln)]
+        if not opts["ig_beacon"]:
+            for i in have:
+                lines[i] = MARK + lines[i]
+        elif not have and b is not None:
+            ig = re.sub(r"\s+via=\S+", "", lines[b].rstrip())
+            ig = re.sub(r"\s+sendto=\S+", "", ig)
+            lines.append(re.sub(r"^(\s*PBEACON)", r"\1 sendto=IG", ig, count=1, flags=re.I))
     return "\n".join(lines) + "\n"
 
 

@@ -109,3 +109,37 @@ class PaclenAndInfoTests(unittest.TestCase):
         for f in dwconf.schema({}):
             self.assertTrue(f["help"], f["key"])
         self.assertEqual(next(f for f in dwconf.schema({}) if f["key"] == "paclen")["default"], "256")
+
+
+class IgateAndOverlayTests(unittest.TestCase):
+    def test_overlay_and_ig_filter_and_ig_beacon(self):
+        out = dwconf.generate(BASE, dwconf.validate(
+            {"beacon_via": "WIDE1-1", "beacon_overlay": "i", "ig_filter": "t/m", "ig_beacon": True}))
+        pbs = [l for l in out.splitlines() if l.startswith("PBEACON")]
+        self.assertEqual(len(pbs), 2)
+        self.assertIn("via=WIDE1-1", pbs[0])
+        self.assertIn("overlay=I", pbs[0])
+        self.assertNotIn("via=", pbs[1])
+        self.assertIn("sendto=IG", pbs[1])
+        self.assertIn("overlay=I", pbs[1])
+        self.assertIn("lat=43^22.88N", pbs[1])
+        self.assertIn("FILTER IG 0 t/m", out.splitlines())
+        # el original no cambia y la baliza de radio sigue siendo la principal al releer
+        vals = dwconf.parse_base(out)[0]
+        self.assertEqual((vals["beacon_via"], vals["beacon_overlay"], vals["ig_filter"], vals["ig_beacon"]), ("WIDE1-1", "I", "t/m", True))
+
+    def test_ig_beacon_not_duplicated_and_can_be_removed(self):
+        once = dwconf.generate(BASE, {"ig_beacon": True})
+        twice = dwconf.generate(once, {"ig_beacon": True})
+        self.assertEqual(len([l for l in twice.splitlines() if l.startswith("PBEACON")]), 2)
+        off = dwconf.generate(once, {"ig_beacon": False})
+        self.assertEqual(len([l for l in off.splitlines() if l.startswith("PBEACON")]), 1)
+
+    def test_no_ig_beacon_without_radio_beacon(self):
+        out = dwconf.generate(BASE, {"beacon": False, "ig_beacon": True})
+        self.assertFalse([l for l in out.splitlines() if l.startswith("PBEACON")])
+
+    def test_validation(self):
+        for bad in ({"beacon_overlay": "II"}, {"beacon_overlay": "-"}, {"ig_filter": "t/m\nIGLOGIN a b"}):
+            with self.assertRaises(ValueError):
+                dwconf.validate(bad)
