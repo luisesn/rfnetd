@@ -19,6 +19,7 @@ SIMPLE = {
     "PERSIST": ("persist", "PERSIST (0-255)", "int", (0, 255)),
     "SLOTTIME": ("slottime", "SLOTTIME (×10 ms)", "int", (0, 255)),
     "DWAIT": ("dwait", "DWAIT (×10 ms)", "int", (0, 255)),
+    "ARATE": ("arate", "Frecuencia de muestreo de entrada (ARATE)", "choice", ["11025", "22050", "44100", "48000"]),
     "PACLEN": ("paclen", "PACLEN (bytes)", "int", (1, 2048)),
     "FIX_BITS": ("fix_bits", "Corrección de bits (FIX_BITS)", "choice", ["0", "1", "2", "3", "4", "5", "6"]),
     "DEDUPE": ("dedup", "Duplicados: segundos (DEDUPE)", "int", (0, 600)),
@@ -32,6 +33,9 @@ INFO = {
     "persist": ("63", "Probabilidad CSMA (0-255): con el canal libre, transmite en cada ranura con probabilidad (valor+1)/256. Menor = más cortés, más espera."),
     "slottime": ("10", "Duración de cada ranura CSMA: cuánto se espera entre intentos si el canal estaba ocupado."),
     "dwait": ("0", "Espera extra tras quedar libre el canal antes de transmitir. Útil para dejar pasar confirmaciones de otras estaciones."),
+    "arate": ("44100", "Muestras por segundo con que Direwolf lee el audio. Si coincide con la de la tarjeta (48000 en la USB) ALSA no tiene que convertir y se gasta menos CPU."),
+    "status_text": ("", "Texto de un paquete de estado que se transmite por radio cada cierto tiempo (vía WIDE1-1). Sirve para que aprs.fi muestre «último estado»."),
+    "status_every": ("60", "Minutos entre paquetes de estado. 60 es suficiente para una estación fija."),
     "paclen": ("256", "Tamaño máximo (bytes) de la parte de datos de las tramas que genera Direwolf en modo conectado. No recorta las tramas que llegan por KISS (p. ej. tncattach, cuyo MTU manda)."),
     "fix_bits": ("1", "Intentos de reparar tramas con errores de CRC: 0 = ninguno, más = más tramas recuperadas pero algo más de riesgo de falsos positivos."),
     "dedup": ("30", "Segundos durante los que se descarta un paquete idéntico ya repetido, para que el digipeater no lo reenvíe dos veces."),
@@ -50,6 +54,10 @@ LEGACY = {"DEDUP": "DEDUPE"}   # Direwolf 1.6 no reconoce DEDUP; se corrige en l
 FILTER_RE = re.compile(r"^[A-Za-z0-9/!&|()*., _-]{0,120}$")
 IG_FILTER_RE = re.compile(r"^[A-Za-z0-9/!&|()*., _-]{0,120}$")
 IG_FILTER_FIELD = ("ig_filter", "Filtro hacia la radio (FILTER IG 0), p. ej. t/m = solo mensajes", "filter", None)
+STATUS_FIELDS = {   # paquete de estado periódico (CBEACON); texto vacío = no se envía
+    "status_text": ("Estado periódico: texto (vacío = no enviar)", "text"),
+    "status_every": ("Estado periódico: cada (minutos)", "int"),
+}
 IG_BEACON_FIELD = ("ig_beacon", "Baliza también a Internet (sendto=IG, sin radio)", "bool", None)
 FILTER_FIELD = ("digi_filter", "Filtro del digipeater (FILTER 0 0), p. ej. ! b/EA1DGP-3", "filter", None)
 GROUPS = {  # clave -> directivas que se comentan cuando está desactivado
@@ -119,6 +127,10 @@ def parse_base(text):
                                 and ln.split()[1:3] == ["0", "0"] and len(ln.split()) > 3), "")
     vals["ig_filter"] = next((ln.split(None, 3)[3] for ln in lines if _directive(ln) == "FILTER"
                               and [x.upper() for x in ln.split()[1:3]] == ["IG", "0"] and len(ln.split()) > 3), "")
+    st = next((ln for ln in lines if _directive(ln) == "CBEACON" and (_field(ln, "info") or "").startswith(">")), None)
+    if st:
+        vals["status_text"] = _field(st, "info")[1:]
+        vals["status_every"] = _field(st, "every") or ""
     vals["ig_beacon"] = any(_is_ig_beacon(ln) for ln in lines)
     b = _main_beacon(lines)
     src = lines[b] if b is not None else next((ln for ln in _commented_lines(lines) if _directive(ln) == "PBEACON"), "")
@@ -144,6 +156,9 @@ def schema(avail):
         if g == "beacon":
             for opt, (lbl, _, kind, lim) in BEACON_FIELDS.items():
                 out.append(_info({"key": opt, "label": lbl, "type": kind, "limits": lim, "depends": "beacon"}))
+        if g == "beacon":
+            out.append(_info({"key": "status_text", "label": STATUS_FIELDS["status_text"][0], "type": "text", "limits": None}))
+            out.append(_info({"key": "status_every", "label": STATUS_FIELDS["status_every"][0], "type": "int", "limits": (1, 1440)}))
         if g == "igate":
             for fld in (IG_FILTER_FIELD, IG_BEACON_FIELD):
                 out.append(_info({"key": fld[0], "label": fld[1], "type": fld[2], "limits": None, "depends": "igate"}))
@@ -192,7 +207,7 @@ def validate(opts):
             clean[key] = v
         elif t == "text":
             v = str(v)
-            if len(v) > 60 or any(c in v for c in '"\r\n\\') or not v.isprintable():
+            if len(v) > 60 or any(c in v for c in '"\r\n\\') or not v.isprintable() or not v.isascii():
                 raise ValueError("comentario no válido (máx. 60, sin comillas ni barras)")
             clean[key] = v
     return clean
@@ -247,6 +262,13 @@ def generate(base_text, opts, audio_in=None):
                 lines[b] = re.sub(r'(^|\s)%s=("[^"]*"|\S+)' % field, lambda m: m.group(1) + "%s=%s" % (field, val), lines[b], count=1)
             else:
                 lines[b] += " %s=%s" % (field, val)
+    if "status_text" in opts or "status_every" in opts:     # estado periódico por radio (CBEACON con info=">…")
+        old = next((ln for ln in lines if _directive(ln) == "CBEACON" and (_field(ln, "info") or "").startswith(">")), None)
+        text = opts.get("status_text", (_field(old, "info") or ">")[1:] if old else "")
+        every = opts.get("status_every", int(_field(old, "every") or 60) if old else 60)
+        lines = [ln for ln in lines if ln is not old]
+        if text:
+            lines.append('CBEACON delay=3 every=%d via=WIDE1-1 info=">%s"' % (every, text))
     if "ig_beacon" in opts:     # copia de la baliza de radio que solo va a APRS-IS (no transmite por radio)
         have = [i for i, ln in enumerate(lines) if _is_ig_beacon(ln)]
         if not opts["ig_beacon"]:

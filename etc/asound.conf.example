@@ -10,6 +10,9 @@ pcm.rf_snoop {
         format S16_LE
         channels 1
         rate 48000
+        # Margen de ~1 s (12 × 4096 muestras): aguanta que el lector se retrase sin desbordar (error -32 «Broken pipe»)
+        period_size 4096
+        buffer_size 49152
     }
 }
 pcm.rf_cap {

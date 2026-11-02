@@ -143,3 +143,22 @@ class IgateAndOverlayTests(unittest.TestCase):
         for bad in ({"beacon_overlay": "II"}, {"beacon_overlay": "-"}, {"ig_filter": "t/m\nIGLOGIN a b"}):
             with self.assertRaises(ValueError):
                 dwconf.validate(bad)
+
+
+class StatusAndArateTests(unittest.TestCase):
+    def test_status_beacon(self):
+        out = dwconf.generate(BASE, dwconf.validate({"status_text": "Digi IGate IN83BJ", "status_every": 60, "arate": "48000"}))
+        self.assertIn('CBEACON delay=3 every=60 via=WIDE1-1 info=">Digi IGate IN83BJ"', out.splitlines())
+        self.assertIn("ARATE 48000", out.splitlines())
+        vals = dwconf.parse_base(out)[0]
+        self.assertEqual((vals["status_text"], vals["status_every"], vals["arate"]), ("Digi IGate IN83BJ", "60", "48000"))
+        again = dwconf.generate(out, {"status_every": 30})
+        self.assertEqual([l for l in again.splitlines() if l.startswith("CBEACON")],
+                         ['CBEACON delay=3 every=30 via=WIDE1-1 info=">Digi IGate IN83BJ"'])
+        off = dwconf.generate(out, {"status_text": ""})
+        self.assertNotIn("CBEACON", off)
+
+    def test_status_validation(self):
+        for bad in ({"status_text": 'a"b'}, {"status_text": "niño"}, {"status_every": 0}, {"arate": "1"}):
+            with self.assertRaises(ValueError):
+                dwconf.validate(bad)
