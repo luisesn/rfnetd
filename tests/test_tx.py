@@ -189,6 +189,20 @@ class Sending(unittest.TestCase):
         t.on_packet({"type": "message", "dir": "rx", "src": "EA1ABC-7", "to": "EA1TST-5", "text": "hola", "msgno": "42"})
         self.assertEqual(t.frames, [])
 
+    def test_auto_ack_switch_persists(self):
+        from rfnetd.dwconf import Controls
+        ctl = Controls(os.path.join(self.tmp, "c.json"))
+        t, _ = make(tmp=self.tmp)
+        t.controls = ctl
+        t.set_auto_ack(True)
+        self.assertTrue(t.auto_ack)
+        pkt = {"type": "message", "dir": "rx", "src": "EA1ABC-7", "to": "EA1TST-5", "text": "hola", "msgno": "42"}
+        t.on_packet(pkt)
+        self.assertEqual(len(t.frames), 1)
+        self.assertTrue(Controls(os.path.join(self.tmp, "c.json")).get("auto_ack"))
+        t.set_auto_ack(False)
+        self.assertFalse(Controls(os.path.join(self.tmp, "c.json")).get("auto_ack"))
+
     def test_real_socket(self):
         srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
         got = []

@@ -178,7 +178,8 @@ table.kv { border-collapse: collapse; } table.kv td { padding: 2px 10px 2px 0; }
           <button id="tx-status" title="Envía el texto como estado (>)">Estado</button>
           <button id="tx-pos" title="Envía tu posición fija; el texto es el comentario">Posición</button>
         </div>
-        <div class="row unit" id="tx-info"></div>
+        <div class="row unit"><span id="tx-info"></span>
+          <label id="ackbox" style="display:none" title="Responde con ack a los mensajes con número recibidos para esta estación (transmite por radio)"><input type="checkbox" id="tx-autoack"> ack automático</label></div>
       </div>
     </div>
 
@@ -539,7 +540,8 @@ async function loadTx() {
     : !txInfo.enabled ? "Transmisión desactivada ([tx] enabled en rfnetd.conf). Se guardan los mensajes APRS recibidos; las copias repetidas se agrupan en «×N»."
     : (txInfo.blocked ? "⚠ No se puede transmitir ahora: " + txInfo.blocked + ". " : "") +
       `Sale como ${txInfo.me}>${txInfo.tocall}${txInfo.path.map(p => "," + p).join("")} · ${txInfo.sent_last_hour}/${txInfo.max_per_hour} transmisiones esta hora` +
-      (txInfo.pending.length ? ` · ${txInfo.pending.length} esperando ack` : "") + (txInfo.auto_ack ? " · ack automático" : "");
+      (txInfo.pending.length ? ` · ${txInfo.pending.length} esperando ack` : "");
+  $("ackbox").style.display = on ? "" : "none"; $("tx-autoack").checked = !!txInfo.auto_ack;
   [ "tx-send", "tx-status", "tx-pos" ].forEach(i => $(i).disabled = !!txInfo.blocked);
 }
 async function txCmd(body, okmsg) {
@@ -554,6 +556,10 @@ $("tx-send").onclick = () => {
   txCmd({action: "message", to, text}, "Mensaje enviado a " + to + " (esperando ack)");
 };
 $("tx-status").onclick = () => { const text = $("tx-text").value; if (text.trim()) txCmd({action: "status", text}, "Estado enviado"); };
+$("tx-autoack").onchange = async e => {
+  try { await post("/api/tx", {action: "auto_ack", value: e.target.checked}); } catch (err) { $("tx-info").textContent = "✗ " + err.message; }
+  loadTx().catch(() => {});
+};
 $("tx-pos").onclick = () => txCmd({action: "position", comment: $("tx-text").value}, "Posición enviada");
 $("tx-text").addEventListener("keydown", e => { if (e.key === "Enter") $("tx-send").click(); });
 async function refreshPending() {

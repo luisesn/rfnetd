@@ -236,6 +236,12 @@ def make_server(cfg, hub, store, supervisor, radio, audio, controls, history, tx
                 r = tx.send_status(str(b.get("text", "")))
             elif act == "position":
                 r = tx.send_position(str(b.get("comment", "")))
+            elif act == "auto_ack":
+                if not isinstance(b.get("value"), bool):
+                    raise ValueError("value debe ser true o false")
+                tx.set_auto_ack(b["value"])
+                hub.log("Ack automático %s desde la web (%s)" % ("activado" if b["value"] else "desactivado", who))
+                return self._json(dict(tx.status(), result="ok"))
             else:
                 raise ValueError("acción desconocida")
             hub.log("Transmisión pedida desde la web (%s): %s" % (who, act))

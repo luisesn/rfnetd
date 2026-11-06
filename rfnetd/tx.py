@@ -75,8 +75,9 @@ def _lon(v):
 
 
 class Transmitter:
-    def __init__(self, cfg, hub, history, radio):
+    def __init__(self, cfg, hub, history, radio, controls=None):
         self.cfg, self.hub, self.history, self.radio = cfg, hub, history, radio
+        self.controls = controls
         self.enabled = cfg.bool("tx", "enabled")
         self.me = cfg.get("station", "callsign").upper()
         self.tocall = cfg.get("tx", "tocall").upper()
@@ -87,6 +88,10 @@ class Transmitter:
         self.waits = [int(x) for x in re.split(r"[,\s]+", cfg.get("tx", "retry_seconds").strip()) if x]
         self.require_freq = cfg.float("tx", "require_freq")
         self.auto_ack = cfg.bool("tx", "auto_ack")
+        try:   # lo elegido en la web manda sobre rfnetd.conf
+            self.auto_ack = bool(controls.get("auto_ack"))
+        except (AttributeError, KeyError):
+            pass
         self.symbol = (cfg.get("tx", "symbol") + "/-")[:2]
         self.lock = threading.Lock()
         self.sent = deque()          # marcas de tiempo de las transmisiones (límite por hora)
@@ -246,6 +251,11 @@ class Transmitter:
     def start(self):
         if self.enabled:
             threading.Thread(target=self._retry_loop, daemon=True).start()
+
+    def set_auto_ack(self, on):
+        self.auto_ack = bool(on)
+        if self.controls:
+            self.controls.set("auto_ack", self.auto_ack)
 
     def shutdown(self):
         self.stop_evt.set()

@@ -33,7 +33,7 @@ def main():
     controls = Controls(os.path.join(data_dir, "controls.json"))
     radio = Radio(cfg, hub)
     audio = Streamer(cfg, hub)
-    tx = hub.tx = Transmitter(cfg, hub, history, radio)
+    tx = hub.tx = Transmitter(cfg, hub, history, radio, controls)
     sup = Supervisor(cfg, hub, controls)
     httpd = make_server(cfg, hub, store, sup, radio, audio, controls, history, tx)
     stop = threading.Event()
