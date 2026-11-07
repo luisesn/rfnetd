@@ -21,6 +21,11 @@ base_conf =
 # Dispositivo ALSA de captura para Direwolf (p. ej. rf_cap, un dsnoop, para poder escuchar a la vez).
 # Vacío = el que ponga el fichero base. La salida (TX) no se toca.
 audio_in =
+# Vigila el puerto serie del PTT (línea «PTT /dev/...» del fichero de Direwolf): avisa y bloquea la
+# transmisión desde la web si el adaptador USB se ha desconectado, y con ptt_autorestart reinicia
+# Direwolf cuando el puerto vuelve (como mucho una vez cada 2 minutos).
+ptt_watch = yes
+ptt_autorestart = yes
 
 [tncattach]
 enabled = yes

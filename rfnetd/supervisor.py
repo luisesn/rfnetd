@@ -2,6 +2,7 @@
 import json
 import os
 import pty
+import re
 import signal
 import socket
 import subprocess
@@ -70,6 +71,56 @@ class Proc:
                 pass
 
 
+PTT_RE = re.compile(r"^\s*PTT\s+(/dev/\S+)", re.M)
+TTY_FD_RE = re.compile(r"^/dev/(tty(USB|ACM|S|AMA)|serial/)")
+
+
+def group_pids(pgid):
+    """pid del proceso y de sus descendientes (mismo grupo: con «runuser» el hijo directo no es Direwolf)."""
+    out = []
+    for d in os.listdir("/proc"):
+        if d.isdigit():
+            try:
+                with open("/proc/%s/stat" % d) as f:
+                    if int(f.read().rsplit(")", 1)[1].split()[2]) == pgid:
+                        out.append(int(d))
+            except (OSError, ValueError, IndexError):
+                pass
+    return out
+
+
+def ptt_check(device, pid):
+    """(ok, problema) del puerto serie del PTT de Direwolf.
+
+    Si el adaptador USB se desconecta y vuelve, Direwolf sigue con el descriptor del nodo
+    borrado («(deleted)») y la emisora no recibe PTT aunque el puerto exista otra vez.
+    """
+    if not os.path.exists(device):
+        return False, "el puerto %s no existe (¿adaptador USB desconectado?)" % device
+    if not pid:
+        return True, None
+    seen = denied = False
+    try:
+        for p in group_pids(pid) or [pid]:
+            for fd in os.listdir("/proc/%d/fd" % p):
+                try:
+                    target = os.readlink("/proc/%d/fd/%s" % (p, fd))
+                except OSError:
+                    denied = True
+                    continue
+                if TTY_FD_RE.match(target.replace(" (deleted)", "")):
+                    if target.endswith(" (deleted)"):
+                        return False, "Direwolf tiene el PTT en un puerto que ya no existe (%s); hay que reiniciarlo" % target
+                    seen = True
+    except OSError:
+        return True, None   # sin permiso para mirar: no se juzga
+    if not seen and denied:
+        return True, None   # no se pudieron leer todos los descriptores: no se juzga
+    if not seen:
+        return False, "Direwolf no tiene abierto el puerto del PTT %s" % device
+    return True, None
+
+
 class Restart(Exception):
     """Reinicio pedido por el usuario (sin espera ni cuenta de fallos)."""
 
@@ -86,6 +137,9 @@ class Supervisor(threading.Thread):
         self.restarts = {}
         self.state = "parado"
         self.cycles = 0
+        self.ptt_dev = None
+        self.ptt = None
+        self.ptt_fix_at = 0.0
         self.chain_on = controls.get("chain_on") if controls else True
 
     # --- control desde la web ---
@@ -139,6 +193,8 @@ class Supervisor(threading.Thread):
             text = f.read()
         opts = self.controls.get("dw_opts") if self.controls else {}
         out = dwconf.generate(text, dwconf.validate(opts), self.cfg.get("direwolf", "audio_in") or None)
+        m = PTT_RE.search(re.sub(r"(?m)^\s*#.*$", "", out))
+        self.ptt_dev = m[1] if m else None
         path = os.path.join(self.cfg.get("data", "dir"), "direwolf.conf")
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
         with os.fdopen(fd, "w") as f:
@@ -187,6 +243,7 @@ class Supervisor(threading.Thread):
         cfg = self.cfg
         self.state = "arrancando"
         self.procs = {}
+        self.ptt, self.hub.ptt_problem = None, None
         if cfg.bool("direwolf", "enabled"):
             self._start("direwolf", "direwolf", cfg.get("direwolf", "user") or None, self._dw_argv())
             if not self._wait("el puerto KISS", self._port_open, cfg.int("direwolf", "ready_timeout")):
@@ -213,6 +270,26 @@ class Supervisor(threading.Thread):
                     raise RuntimeError("%s terminó (código %s)" % (p.name, p.p.returncode))
             if time.time() - up_since > 120:
                 self.cycles = 0  # estable: reinicia el backoff
+            if self.cfg.bool("direwolf", "ptt_watch") and int(time.time()) % 5 == 0:
+                self._watch_ptt(up_since)
+
+    def _watch_ptt(self, up_since):
+        dw = self.procs.get("direwolf")
+        if not self.ptt_dev or not dw or time.time() - up_since < 15:
+            self.ptt = None
+            self.hub.ptt_problem = None
+            return
+        ok, why = ptt_check(self.ptt_dev, dw.p.pid)
+        before = self.ptt
+        self.ptt = {"device": self.ptt_dev, "ok": ok, "problem": why}
+        self.hub.ptt_problem = None if ok else why
+        if (before or {}).get("ok", True) != ok:
+            self.hub.log("PTT %s: %s" % (self.ptt_dev, "recuperado" if ok else why), "info" if ok else "error")
+        if not ok and "reiniciarlo" in why and self.cfg.bool("direwolf", "ptt_autorestart") \
+                and time.time() - self.ptt_fix_at > 120:
+            self.ptt_fix_at = time.time()
+            self.hub.log("PTT: reiniciando Direwolf para que vuelva a abrir %s" % self.ptt_dev, "warn")
+            self.kick.set()
 
     def _teardown(self):
         for name in ("capture", "tncattach", "direwolf"):
@@ -294,6 +371,7 @@ class Supervisor(threading.Thread):
             "chain_on": self.chain_on,
             "interface": iface,
             "interface_up": self._iface_up(),
+            "ptt": self.ptt,
             "procs": {n: {"alive": p.alive(), "pid": p.p.pid if p.p else None,
                           "since": p.started, "restarts": p.restarts} for n, p in self.procs.items()},
         }

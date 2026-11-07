@@ -25,6 +25,7 @@ class Hub:
         self.events = deque(maxlen=n)
         # los ids continúan donde lo dejó el histórico, así son únicos y crecientes entre reinicios
         self.raw_id, self.event_id = history.max_ids()
+        self.ptt_problem = None   # texto si el puerto del PTT de Direwolf está roto (lo pone el Supervisor)
         self.tx = None   # Transmitter, se asigna desde __main__
         self.counters = {"aprs_rx": 0, "aprs_ig": 0, "aprs_tx": 0, "ip_packets": 0, "last_aprs": None}
         self.files = {}

@@ -120,6 +120,8 @@ class Transmitter:
         """None si se puede transmitir; si no, el motivo."""
         if not self.enabled:
             return "transmisión desactivada: define [tx] enabled = yes e indicativo propio"
+        if getattr(self.hub, "ptt_problem", None):
+            return "PTT de Direwolf: " + self.hub.ptt_problem
         if self.radio.enabled:
             st = self.radio.snapshot()
             if not st["connected"]:
