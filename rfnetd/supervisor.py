@@ -140,6 +140,7 @@ class Supervisor(threading.Thread):
         self.ptt_dev = None
         self.ptt = None
         self.ptt_fix_at = 0.0
+        self.rx_silence = None
         self.chain_on = controls.get("chain_on") if controls else True
 
     # --- control desde la web ---
@@ -244,6 +245,7 @@ class Supervisor(threading.Thread):
         self.state = "arrancando"
         self.procs = {}
         self.ptt, self.hub.ptt_problem = None, None
+        self.rx_silence = None
         if cfg.bool("direwolf", "enabled"):
             self._start("direwolf", "direwolf", cfg.get("direwolf", "user") or None, self._dw_argv())
             if not self._wait("el puerto KISS", self._port_open, cfg.int("direwolf", "ready_timeout")):
@@ -272,6 +274,7 @@ class Supervisor(threading.Thread):
                 self.cycles = 0  # estable: reinicia el backoff
             if self.cfg.bool("direwolf", "ptt_watch") and int(time.time()) % 5 == 0:
                 self._watch_ptt(up_since)
+            self._watch_rx(up_since)
 
     def _watch_ptt(self, up_since):
         dw = self.procs.get("direwolf")
@@ -289,6 +292,21 @@ class Supervisor(threading.Thread):
                 and time.time() - self.ptt_fix_at > 120:
             self.ptt_fix_at = time.time()
             self.hub.log("PTT: reiniciando Direwolf para que vuelva a abrir %s" % self.ptt_dev, "warn")
+            self.kick.set()
+
+    def _watch_rx(self, up_since):
+        """Reinicia Direwolf si lleva demasiado tiempo sin decodificar tramas de radio."""
+        mins = self.cfg.int("direwolf", "rx_watchdog_minutes")
+        dw = self.procs.get("direwolf")
+        if mins <= 0 or not dw:
+            self.rx_silence = None
+            return
+        ref = max(up_since, (self.hub.counters.get("last_rf_rx") or 0))
+        silent = time.time() - ref
+        self.rx_silence = silent
+        if silent > mins * 60:
+            self.hub.log("Direwolf lleva %d min sin recibir ninguna trama por radio (límite %d): reiniciándolo"
+                         % (silent // 60, mins), "warn")
             self.kick.set()
 
     def _teardown(self):
@@ -372,6 +390,7 @@ class Supervisor(threading.Thread):
             "interface": iface,
             "interface_up": self._iface_up(),
             "ptt": self.ptt,
+            "rx_silence": self.rx_silence,
             "procs": {n: {"alive": p.alive(), "pid": p.p.pid if p.p else None,
                           "since": p.started, "restarts": p.restarts} for n, p in self.procs.items()},
         }

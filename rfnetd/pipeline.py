@@ -27,7 +27,7 @@ class Hub:
         self.raw_id, self.event_id = history.max_ids()
         self.ptt_problem = None   # texto si el puerto del PTT de Direwolf está roto (lo pone el Supervisor)
         self.tx = None   # Transmitter, se asigna desde __main__
-        self.counters = {"aprs_rx": 0, "aprs_ig": 0, "aprs_tx": 0, "ip_packets": 0, "last_aprs": None}
+        self.counters = {"aprs_rx": 0, "aprs_ig": 0, "aprs_tx": 0, "ip_packets": 0, "last_aprs": None, "last_rf_rx": None}
         self.files = {}
         self._open_files()
 
@@ -101,6 +101,8 @@ class Hub:
                 with self.lock:
                     self.counters[{"tx": "aprs_tx", "ig": "aprs_ig"}.get(pkt["dir"], "aprs_rx")] += 1
                     self.counters["last_aprs"] = time.time()
+                    if pkt["dir"] == "rx":
+                        self.counters["last_rf_rx"] = time.time()   # solo radio: vigilancia de silencio RX
             # tx = lo emitimos nosotros; digi = copia de un paquete que ya se registró al recibirlo
             if pkt["dir"] not in ("tx", "digi"):
                 self.store.update(pkt, ts)

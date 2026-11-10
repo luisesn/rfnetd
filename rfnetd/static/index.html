@@ -258,6 +258,7 @@ async function pollStatus() {
     for (const [n, p] of Object.entries(s.procs)) mk(n, p.alive, p.restarts ? " ↻" + p.restarts : "");
     mk(s.interface, s.interface_up);
     if (s.ptt) mk("PTT", s.ptt.ok, s.ptt.ok ? "" : ": " + s.ptt.problem);
+    if (s.rx_silence > 600) mk("RX", null, ": " + ago(s.rx_silence) + " sin tramas");
     mk("radio", s.radio.enabled ? s.radio.connected : null);
     const c = s.counters;
     $("sb-cnt").textContent = `APRS radio ${c.aprs_rx} · Internet ${c.aprs_ig || 0} · tx ${c.aprs_tx} · IP ${c.ip_packets}` + (c.last_aprs ? ` · último APRS hace ${ago(s.now - c.last_aprs)}` : "");

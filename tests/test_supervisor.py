@@ -42,5 +42,37 @@ class PttCheckTests(unittest.TestCase):
                 self.assertFalse(ptt_check("/dev/ttyUSB2", 5)[0])
 
 
+class RxWatchTests(unittest.TestCase):
+    def _sup(self, mins, last_rx):
+        from rfnetd.config import Config
+        cfg = Config()
+        cfg.cp.set("direwolf", "rx_watchdog_minutes", str(mins))
+        hub = mock.Mock()
+        hub.counters = {"last_rf_rx": last_rx}
+        sup = supervisor.Supervisor(cfg, hub)
+        sup.procs = {"direwolf": mock.Mock()}
+        return sup
+
+    def test_restarts_after_silence(self):
+        import time
+        sup = self._sup(30, time.time() - 31 * 60)
+        sup._watch_rx(time.time() - 40 * 60)
+        self.assertTrue(sup.kick.is_set())
+
+    def test_no_restart_if_recent_rx_or_recent_start(self):
+        import time
+        sup = self._sup(30, time.time() - 5 * 60)
+        sup._watch_rx(time.time() - 90 * 60)
+        self.assertFalse(sup.kick.is_set())
+        sup = self._sup(30, None)           # sin tramas, pero recién arrancado
+        sup._watch_rx(time.time() - 60)
+        self.assertFalse(sup.kick.is_set())
+
+    def test_disabled(self):
+        sup = self._sup(0, None)
+        sup._watch_rx(0)
+        self.assertFalse(sup.kick.is_set())
+
+
 if __name__ == "__main__":
     unittest.main()

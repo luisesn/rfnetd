@@ -23,6 +23,9 @@ kiss_host = 127.0.0.1
 kiss_port = 8001
 # Segundos máximos esperando a que Direwolf abra el puerto KISS
 ready_timeout = 30
+# Reinicia Direwolf si pasan tantos minutos sin decodificar ninguna trama recibida por radio
+# (se cuelga sin dar error). 0 = desactivado. Ponlo por encima del mayor silencio normal del canal.
+rx_watchdog_minutes = 30
 
 [tncattach]
 enabled = yes

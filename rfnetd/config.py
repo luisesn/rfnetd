@@ -26,6 +26,11 @@ audio_in =
 # Direwolf cuando el puerto vuelve (como mucho una vez cada 2 minutos).
 ptt_watch = yes
 ptt_autorestart = yes
+# Vigilancia de silencio RX: si Direwolf no decodifica ninguna trama RECIBIDA POR RADIO (no cuentan
+# APRS-IS ni las propias) durante estos minutos, se reinicia (se queda colgado sin dar error).
+# El plazo cuenta desde el último arranque, así que como mucho se reinicia una vez por plazo.
+# 0 = desactivado. Ponlo por encima del mayor silencio normal de tu canal.
+rx_watchdog_minutes = 30
 
 [tncattach]
 enabled = yes
