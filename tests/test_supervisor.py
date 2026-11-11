@@ -42,6 +42,26 @@ class PttCheckTests(unittest.TestCase):
                 self.assertFalse(ptt_check("/dev/ttyUSB2", 5)[0])
 
 
+class ReaderTests(unittest.TestCase):
+    def test_reader_survives_handler_errors(self):
+        got = []
+
+        def on_line(name, line):
+            if line.strip() == "boom":
+                raise KeyError("lat")
+            got.append(line.strip())
+
+        p = supervisor.Proc("t", ["sh", "-c", "echo uno; echo boom; echo dos"], on_line)
+        p.start()
+        p.p.wait(5)
+        for _ in range(50):
+            if len(got) == 2:
+                break
+            import time
+            time.sleep(0.1)
+        self.assertEqual(got, ["uno", "dos"])
+
+
 class RxWatchTests(unittest.TestCase):
     def _sup(self, mins, last_rx):
         from rfnetd.config import Config

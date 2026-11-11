@@ -8,6 +8,7 @@ import socket
 import subprocess
 import threading
 import time
+import traceback
 
 from . import dwconf
 
@@ -45,7 +46,12 @@ class Proc:
                 buf += chunk
                 *lines, buf = buf.split(b"\n")
                 for ln in lines:
-                    self.on_line(self.name, ln.decode("utf-8", "replace"))
+                    try:
+                        self.on_line(self.name, ln.decode("utf-8", "replace"))
+                    except Exception:  # noqa: BLE001 - una línea rara no debe matar el lector
+                        # Si este hilo muere, nadie vacía el pty, el proceso se bloquea al escribir
+                        # y parece «colgado» sin dar error.
+                        traceback.print_exc()
         except OSError:
             pass
         finally:

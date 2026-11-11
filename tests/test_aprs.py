@@ -107,6 +107,10 @@ class HumanizeTests(unittest.TestCase):
         self.assertIn("83 km/h", s)
         self.assertIn("retransmitido por EA1XYZ", s)
 
+    def test_position_without_coordinates_does_not_crash(self):
+        p = {"src": "EA1AAA", "dir": "rx", "type": "position", "path": [], "digis": [], "comment": ""}
+        self.assertIn("posición desconocida", humanize.aprs_packet(p))
+
     def test_tcpdump(self):
         l = "2026-11-01 14:40:00.123456 IP 44.0.0.1.1234 > 44.0.0.2.22: Flags [S.], seq 1, ack 2, win 8, length 0"
         lvl, s = humanize.tcpdump_line(l)

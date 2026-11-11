@@ -11,6 +11,8 @@ def clean(line):
 
 
 def _pos(p):
+    if "lat" not in p or "lon" not in p:   # paquete de posición sin coordenadas válidas (vacío o corrupto)
+        return "posición desconocida"
     return "%.4f°%s %.4f°%s" % (abs(p["lat"]), "N" if p["lat"] >= 0 else "S",
                                 abs(p["lon"]), "E" if p["lon"] >= 0 else "W")
 
