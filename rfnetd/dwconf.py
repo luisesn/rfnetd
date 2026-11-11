@@ -39,12 +39,15 @@ INFO = {
     "paclen": ("256", "Tamaño máximo (bytes) de la parte de datos de las tramas que genera Direwolf en modo conectado. No recorta las tramas que llegan por KISS (p. ej. tncattach, cuyo MTU manda)."),
     "fix_bits": ("1", "Intentos de reparar tramas con errores de CRC: 0 = ninguno, más = más tramas recuperadas pero algo más de riesgo de falsos positivos."),
     "dedup": ("30", "Segundos durante los que se descarta un paquete idéntico ya repetido, para que el digipeater no lo reenvíe dos veces."),
+    "il2p": ("", "IL2P añade corrección de errores (FEC) a cada trama. Solo lo decodifican estaciones con IL2P (Direwolf 1.7+, otras no): "
+                 "las demás NO oirán tus transmisiones (balizas, digipeater, IGate). Úsalo en un canal de datos propio, no en el APRS común. "
+                 "La recepción de IL2P es automática y no depende de esta opción. Requiere reiniciar."),
     "beacon": ("", "Transmite automáticamente la posición de la estación."),
     "beacon_every": ("", "Minutos entre balizas. Para un digipeater fijo, 30 o más."),
     "beacon_via": ("", "Ruta de la baliza. Un digi fijo suele usar WIDE1-1 o vacío; WIDE2-1 la propaga más lejos."),
     "beacon_comment": ("", "Texto que acompaña a la posición."),
     "beacon_overlay": ("", "Carácter sobre el icono. Para un digipeater con IGate lo convencional es I; S es de SSn-N."),
-    "ig_filter": ("", "Qué paquetes de Internet se pueden transmitir por radio. «t/m» = solo mensajes. Vacío = sin filtro (Direwolf ya solo pasa mensajes a estaciones oídas)."),
+    "ig_filter": ("", "Qué paquetes de Internet se pueden transmitir por radio. Direwolf avisa de que un filtro propio puede romper los mensajes: añade siempre «| i/180» (mensajes a estaciones vistas en los últimos 180 min). Ej.: «t/m | i/180». Vacío = sin filtro (Direwolf ya solo pasa mensajes a estaciones oídas)."),
     "ig_beacon": ("", "Envía tu posición directamente a APRS-IS, sin radio, para aparecer en aprs.fi aunque nadie repita tu baliza."),
     "digipeat": ("", "Repite los paquetes que oye según el path (WIDE1-1, WIDE2-n…)."),
     "digi_filter": ("", "Excluye o admite paquetes en el digipeater. Ej.: «! b/EA1XXX-3» no repite a esa estación. Vacío = sin filtro."),
@@ -53,13 +56,19 @@ INFO = {
 LEGACY = {"DEDUP": "DEDUPE"}   # Direwolf 1.6 no reconoce DEDUP; se corrige en la copia generada
 FILTER_RE = re.compile(r"^[A-Za-z0-9/!&|()*., _-]{0,120}$")
 IG_FILTER_RE = re.compile(r"^[A-Za-z0-9/!&|()*., _-]{0,120}$")
-IG_FILTER_FIELD = ("ig_filter", "Filtro hacia la radio (FILTER IG 0), p. ej. t/m = solo mensajes", "filter", None)
+IG_FILTER_FIELD = ("ig_filter", "Filtro hacia la radio (FILTER IG 0), p. ej. t/m | i/180", "filter", None)
 STATUS_FIELDS = {   # paquete de estado periódico (CBEACON); texto vacío = no se envía
     "status_text": ("Estado periódico: texto (vacío = no enviar)", "text"),
     "status_every": ("Estado periódico: cada (minutos)", "int"),
 }
 IG_BEACON_FIELD = ("ig_beacon", "Baliza también a Internet (sendto=IG, sin radio)", "bool", None)
 FILTER_FIELD = ("digi_filter", "Filtro del digipeater (FILTER 0 0), p. ej. ! b/EA1DGP-3", "filter", None)
+# IL2P no es una directiva del fichero: Direwolf 1.7+ lo activa con -I n / -i n en la línea de comandos.
+# La recepción de IL2P es automática; esto solo controla la TRANSMISIÓN (rfnetd añade el argumento al lanzarlo).
+IL2P_FIELD = ("il2p", "IL2P en transmisión (Direwolf 1.7+)", "choice", ["", "1", "0", "i1", "i0"])
+IL2P_LABELS = {"": "desactivado (AX.25 normal)", "1": "IL2P, FEC fuerte (recomendado)", "0": "IL2P, FEC débil",
+               "i1": "IL2P polaridad invertida, FEC fuerte", "i0": "IL2P polaridad invertida, FEC débil"}
+IL2P_ARGS = {"1": ["-I", "1"], "0": ["-I", "0"], "i1": ["-i", "1"], "i0": ["-i", "0"]}
 GROUPS = {  # clave -> directivas que se comentan cuando está desactivado
     "beacon": ("Baliza APRS (PBEACON)", {"PBEACON"}),
     "digipeat": ("Digipeater (DIGIPEAT)", {"DIGIPEAT", "CDIGIPEAT"}),
@@ -151,6 +160,7 @@ def schema(avail):
     out = []
     for key, (opt, label, kind, lim) in SIMPLE.items():
         out.append(_info({"key": opt, "label": label, "type": kind, "limits": lim}))
+    out.append(_info({"key": IL2P_FIELD[0], "label": IL2P_FIELD[1], "type": "choice", "limits": IL2P_FIELD[3], "labels": IL2P_LABELS}))
     for g, (label, _) in GROUPS.items():
         out.append(_info({"key": g, "label": label, "type": "bool", "available": avail.get(g, False)}))
         if g == "beacon":

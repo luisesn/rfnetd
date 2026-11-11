@@ -190,7 +190,26 @@ class Supervisor(threading.Thread):
         argv = self.cfg.argv("direwolf")
         if any("{conf}" in a for a in argv):
             argv = [a.replace("{conf}", self._build_dw_conf()) for a in argv]
-        return argv
+        return self._with_il2p(argv)
+
+    def _with_il2p(self, argv):
+        """Añade -I n / -i n si IL2P está activado en la web (y el Direwolf instalado lo soporta)."""
+        mode = (self.controls.get("dw_opts") if self.controls else {}).get("il2p", "")
+        extra = dwconf.IL2P_ARGS.get(mode)
+        if not extra or any(a in ("-I", "-i") for a in argv):
+            return argv
+        if not self._dw_supports_il2p(argv[0]):
+            self.hub.log("IL2P pedido pero este Direwolf no lo soporta (hace falta 1.7 o superior): se ignora", "error")
+            return argv
+        self.hub.log("IL2P activado en transmisión (%s)" % " ".join(extra))
+        return argv[:1] + extra + argv[1:]
+
+    def _dw_supports_il2p(self, exe):
+        try:
+            r = subprocess.run([exe, "-h"], capture_output=True, text=True, timeout=10)
+            return "IL2P" in (r.stdout + r.stderr)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
 
     def _build_dw_conf(self):
         base = self.cfg.get("direwolf", "base_conf")

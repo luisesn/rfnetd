@@ -87,6 +87,7 @@ class Transmitter:
         self.max_per_hour = cfg.int("tx", "max_per_hour")
         self.waits = [int(x) for x in re.split(r"[,\s]+", cfg.get("tx", "retry_seconds").strip()) if x]
         self.require_freq = cfg.float("tx", "require_freq")
+        self.allow_channels = [x.strip().upper() for x in cfg.get("tx", "allow_channels").split(",") if x.strip()]
         self.auto_ack = cfg.bool("tx", "auto_ack")
         try:   # lo elegido en la web manda sobre rfnetd.conf
             self.auto_ack = bool(controls.get("auto_ack"))
@@ -128,9 +129,15 @@ class Transmitter:
                 return "radio no conectada: no se sabe en qué canal está"
             if st.get("scan"):
                 return "la radio está en scan"
-            if self.require_freq and abs((st.get("freq") or 0) - self.require_freq) > 0.0005:
-                return "la radio no está en el canal APRS (%.3f MHz; ahora %s)" % (
-                    self.require_freq, ("%.3f" % st["freq"]) if st.get("freq") else "desconocido")
+            if self.require_freq:
+                freq_ok = abs((st.get("freq") or 0) - self.require_freq) <= 0.0005
+                chan_ok = (st.get("name") or "").strip().upper() in self.allow_channels
+                if not (freq_ok or chan_ok):
+                    extra = (" ni en " + " / ".join(self.allow_channels)) if self.allow_channels else ""
+                    now = st.get("name") or (("%.3f" % st["freq"]) if st.get("freq") else "desconocido")
+                    return "la radio no está en el canal APRS (%.3f MHz)%s; ahora %s%s" % (
+                        self.require_freq, extra, now,
+                        (" (%.3f MHz)" % st["freq"]) if st.get("freq") and st.get("name") else "")
         return None
 
     def _reserve(self, now, force=False):
@@ -268,4 +275,5 @@ class Transmitter:
             n = len([t for t in self.sent if t > time.time() - 3600])
         return {"enabled": self.enabled, "blocked": self.blocked(), "me": self.me, "path": self.path,
                 "tocall": self.tocall, "pending": pend, "sent_last_hour": n, "max_per_hour": self.max_per_hour,
-                "auto_ack": self.auto_ack, "max_text": MAX_TEXT, "require_freq": self.require_freq}
+                "auto_ack": self.auto_ack, "max_text": MAX_TEXT, "require_freq": self.require_freq,
+                "allow_channels": self.allow_channels}

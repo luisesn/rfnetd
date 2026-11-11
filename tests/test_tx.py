@@ -154,6 +154,20 @@ class Sending(unittest.TestCase):
         t.send_status("ok")
         self.assertEqual(len(t.frames), 1)
 
+    def test_allow_channels_by_name(self):
+        extra = "require_freq = 144.8\nallow_channels = data, VHF DIRECTO\n"
+        for st in (dict(name="DATA", freq=144.95), dict(name="vhf directo", freq=145.5), dict(name="APRS", freq=144.8)):
+            t, _ = make(FakeRadio(True, **st), extra, self.tmp)
+            t.send_status("ok")
+            self.assertEqual(len(t.frames), 1)
+        # misma frecuencia que DATA pero otro canal (repetidor): no se permite
+        t, _ = make(FakeRadio(True, name="REMER S1", freq=144.95), extra, self.tmp)
+        with self.assertRaises(TxError) as e:
+            t.send_status("x")
+        self.assertIn("REMER S1", str(e.exception))
+        self.assertIn("DATA", str(e.exception))
+        self.assertEqual(t.frames, [])
+
     def test_disabled_and_n0call(self):
         for conf in ("[tx]\nenabled = no\n", "[station]\ncallsign = N0CALL\n[tx]\nenabled = yes\n"):
             path = os.path.join(self.tmp, "d.conf")

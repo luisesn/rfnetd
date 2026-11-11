@@ -61,6 +61,21 @@ class DwConfTests(unittest.TestCase):
         self.assertEqual(dwconf.validate({"mycall": "n0call-5", "txdelay": "30"}), {"mycall": "N0CALL-5", "txdelay": 30})
 
 
+class Il2pTests(unittest.TestCase):
+    def test_option_is_validated_and_listed(self):
+        self.assertEqual(dwconf.validate({"il2p": "1"}), {"il2p": "1"})
+        self.assertEqual(dwconf.validate({"il2p": ""}), {"il2p": ""})
+        with self.assertRaises(ValueError):
+            dwconf.validate({"il2p": "7"})
+        f = next(x for x in dwconf.schema({}) if x["key"] == "il2p")
+        self.assertIn("1", f["limits"])
+        self.assertIn("desactivado", f["labels"][""])
+
+    def test_not_written_to_conf(self):
+        out = dwconf.generate("MYCALL N0CALL\n", {"il2p": "1"})
+        self.assertNotIn("il2p", out.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
 

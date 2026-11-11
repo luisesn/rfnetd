@@ -62,6 +62,32 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(got, ["uno", "dos"])
 
 
+class Il2pArgvTests(unittest.TestCase):
+    def _sup(self, mode, supported=True):
+        from rfnetd.config import Config
+        hub = mock.Mock()
+        controls = mock.Mock()
+        controls.get.return_value = {"il2p": mode} if mode is not None else {}
+        sup = supervisor.Supervisor(Config(), hub, controls)
+        sup._dw_supports_il2p = lambda exe: supported
+        return sup, hub
+
+    def test_adds_flag_after_executable(self):
+        sup, _ = self._sup("1")
+        self.assertEqual(sup._with_il2p(["direwolf", "-t", "0", "-c", "x"]), ["direwolf", "-I", "1", "-t", "0", "-c", "x"])
+        sup, _ = self._sup("i0")
+        self.assertEqual(sup._with_il2p(["direwolf", "-c", "x"])[:3], ["direwolf", "-i", "0"])
+
+    def test_off_or_unsupported_or_already_present(self):
+        for mode, sup_ok, argv in ((None, True, ["direwolf"]), ("", True, ["direwolf"]),
+                                   ("1", False, ["direwolf", "-c", "x"]), ("1", True, ["direwolf", "-I", "0"])):
+            sup, hub = self._sup(mode, sup_ok)
+            self.assertEqual(sup._with_il2p(list(argv)), argv)
+        sup, hub = self._sup("1", False)
+        sup._with_il2p(["direwolf"])
+        self.assertEqual(hub.log.call_args[0][1] if len(hub.log.call_args[0]) > 1 else hub.log.call_args[1].get("level"), "error")
+
+
 class RxWatchTests(unittest.TestCase):
     def _sup(self, mins, last_rx):
         from rfnetd.config import Config

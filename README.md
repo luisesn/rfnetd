@@ -42,7 +42,8 @@ Una tarjeta USB solo puede abrirse una vez para capturar. `etc/asound.conf.examp
 
 Con `[direwolf] base_conf` rfnetd genera `/var/lib/rfnetd/direwolf.conf` a partir de tu fichero y de las
 opciones guardadas, y lo pasa a Direwolf (`-c {conf}`). Tu fichero nunca se modifica ni se muestra
-(contiene el passcode de APRS-IS). Los cambios se validan (sin comillas ni saltos de línea) y piden reinicio.
+(contiene el passcode de APRS-IS). IL2P (Direwolf 1.7+) se activa en la transmisión con un desplegable (añade `-I`/`-i` al lanzarlo; la recepción es automática).
+Los cambios se validan (sin comillas ni saltos de línea) y piden reinicio.
 
 ## Seguridad
 
@@ -91,7 +92,7 @@ Con `[tx] enabled = yes` y `[web] password`, la pestaña **Mensajes** permite en
 - **Estado** y **posición fija** (la de `[station]`), de un solo disparo.
 
 Cada envío pide confirmación en la web y queda en el histórico. No se transmite si no hay indicativo propio,
-si la radio no está en `require_freq`, está en scan o desconectada, si se supera `max_per_hour` o si no pasa
+si la radio no está en `require_freq` ni en un canal de `allow_channels` (por nombre, p. ej. `DATA`), está en scan o desconectada, si se supera `max_per_hour` o si no pasa
 `min_interval`. Con `auto_ack = yes` también se confirman los mensajes recibidos para esta estación.
 Los envíos pendientes se pierden si se reinicia el servicio (quedan marcados como fallidos).
 

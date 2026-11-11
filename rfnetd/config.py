@@ -68,6 +68,9 @@ max_per_hour = 30
 retry_seconds = 30, 60, 120
 # Solo transmite si la radio controlada está en esta frecuencia (MHz); 0 = no comprobar
 require_freq = 0
+# Canales de la radio (por NOMBRE, separados por comas) en los que TAMBIÉN se permite transmitir además de
+# require_freq; p. ej. DATA si lo usas como canal de datos privado. Se compara el nombre, no la frecuencia.
+allow_channels =
 # Responder con ack a los mensajes recibidos para esta estación
 auto_ack = no
 # Símbolo de la posición manual: tabla + código (/- = casa)

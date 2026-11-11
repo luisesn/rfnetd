@@ -71,6 +71,9 @@ retry_seconds = 30, 60, 120
 # Solo transmite si la radio controlada está en esta frecuencia (MHz); 0 = no comprobar.
 # Con [radio] enabled, tampoco transmite si la radio no está conectada o está en scan.
 require_freq = 0
+# Canales de la radio (por nombre, separados por comas) donde TAMBIÉN se transmite además de require_freq
+# (p. ej. DATA, canal de datos privado). Se compara el nombre del canal, no la frecuencia.
+allow_channels =
 # Responder con ack a los mensajes recibidos para esta estación
 auto_ack = no
 # Símbolo de la posición manual: tabla + código (/- = casa)

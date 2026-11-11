@@ -323,7 +323,7 @@ let dwDirty = {}, dwSchema = [];
 function fieldInput(f, val, avail) {
   let inp;
   if (f.type === "bool") { inp = el("input"); inp.type = "checkbox"; inp.checked = !!val; inp.disabled = f.available === false; }
-  else if (f.type === "choice") { inp = el("select"); f.limits.forEach(v => { const o = el("option", "", v); o.value = v; inp.appendChild(o); }); inp.value = val === undefined ? "" : String(val); }
+  else if (f.type === "choice") { inp = el("select"); f.limits.forEach(v => { const o = el("option", "", f.labels && f.labels[v] !== undefined ? f.labels[v] : v); o.value = v; inp.appendChild(o); }); inp.value = val === undefined ? "" : String(val); }
   else if (f.type === "int") { inp = el("input"); inp.type = "number"; inp.min = f.limits[0]; inp.max = f.limits[1]; inp.value = val === undefined ? "" : val; }
   else { inp = el("input"); inp.type = "text"; inp.maxLength = 60; inp.value = val === undefined ? "" : val; }
   inp.dataset.key = f.key;
