@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import dwconf
+from .ssids import build_groups
 from .tx import TxError
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -140,8 +141,20 @@ def make_server(cfg, hub, store, supervisor, radio, audio, controls, history, tx
                     ids = [i for i in q["ids"].split(",") if i.isdigit()]
                     return self._json({"rows": history.messages_by_ids(ids)})
                 return self._json({"rows": history.messages(q.get("conv", ""), num("before"), num("after"),
-                                                            q.get("q", "")[:100], min(num("limit", 100), 500), q.get("to", "")[:12]),
+                                                            q.get("q", "")[:100], min(num("limit", 100), 500), q.get("to", "")[:12],
+                                                            q.get("peer", "")[:20], q.get("base", "")[:20].upper(), q.get("noack") == "1"),
                                    "me": cfg.get("station", "callsign").upper()})
+            if u.path == "/api/ssids":
+                ssid = q.get("ssid", "")
+                win = num("window")
+                pos, sent, rcvd = history.station_summaries()
+                groups = build_groups(store.snapshot(), pos, sent, rcvd, q.get("q", "")[:30],
+                                      int(ssid) if ssid.isdigit() and int(ssid) <= 15 else None,
+                                      time.time() - win if win > 0 else 0)
+                return self._json({"groups": groups, "now": time.time(), "me": cfg.get("station", "callsign").upper()})
+            if u.path == "/api/positions":
+                return self._json({"rows": history.positions(q.get("call", "")[:20], q.get("base", "")[:20],
+                                                             num("before"), min(num("limit", 100), 1000))})
             if u.path == "/api/stations":
                 return self._json({"stations": store.snapshot(), "now": time.time()})
             if u.path == "/api/radio":

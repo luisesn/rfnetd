@@ -93,7 +93,7 @@ table.kv { border-collapse: collapse; } table.kv td { padding: 2px 10px 2px 0; }
     </div>
   </div>
   <div class="wb-tabs" id="tabs">
-    <span class="wb-tab active" data-t="map">Mapa</span><span class="wb-tab" data-t="msgs">Mensajes</span><span class="wb-tab" data-t="radio">Radio</span>
+    <span class="wb-tab active" data-t="map">Mapa</span><span class="wb-tab" data-t="msgs">Mensajes</span><span class="wb-tab" data-t="ssid">SSID</span><span class="wb-tab" data-t="radio">Radio</span>
     <span class="wb-tab" data-t="dw">Direwolf</span><span class="wb-tab" data-t="audio">Audio</span>
     <span class="wb-tab" data-t="net">Red</span><span class="wb-tab" data-t="events">Eventos</span><span class="wb-tab" data-t="logs">Logs</span>
   </div>
@@ -183,6 +183,26 @@ table.kv { border-collapse: collapse; } table.kv td { padding: 2px 10px 2px 0; }
       </div>
     </div>
 
+    <!-- SSID: estaciones agrupadas por indicativo base -->
+    <div class="pane" id="p-ssid">
+      <div class="col" style="width:300px;flex-shrink:0">
+        <div class="row"><input type="text" id="sq" placeholder="filtrar indicativo…" style="width:130px" autocapitalize="characters">
+          <select id="sssid" style="min-width:0;width:100px"><option value="">SSID: todos</option><option value="0">sin SSID</option></select></div>
+        <div class="row"><select id="swin" style="min-width:0;width:130px"><option value="0">todo el histórico</option><option value="3600">última hora</option><option value="86400">últimas 24 h</option><option value="604800">últimos 7 días</option></select>
+          <button id="sexp" style="min-width:0">＋</button><button id="scol" style="min-width:0">－</button></div>
+        <div class="row unit" id="sinfo"></div>
+        <div class="sunken" id="sgroups" style="flex:1;overflow:auto"></div>
+      </div>
+      <div class="col grow" style="flex:1">
+        <div class="row"><b id="sd-title">Elige una estación</b>
+          <button id="sd-map" disabled>Ver rastro en el mapa</button><button id="sd-clear">Quitar rastro</button></div>
+        <div class="row"><label><input type="radio" name="sd" value="pos" checked> Posiciones</label>
+          <label><input type="radio" name="sd" value="msg"> Mensajes</label>
+          <label id="sd-ackl" style="display:none"><input type="checkbox" id="sd-ack"> ver ack</label><span class="unit" id="sd-info"></span></div>
+        <div class="logbox sunken" id="sd-log"></div>
+      </div>
+    </div>
+
     <!-- EVENTOS -->
     <div class="pane" id="p-events"><div class="col grow" style="width:100%">
       <div class="row"><input type="text" id="evfilter" placeholder="buscar en todo el histórico…">
@@ -241,6 +261,7 @@ document.querySelectorAll("#tabs .wb-tab").forEach(t => t.onclick = () => {
   if (tab === "events") evFeed.ensure();
   if (tab === "logs") rawFeed.ensure();
   if (tab === "msgs") { loadConvs(); liveMsgs(); unread = 0; showUnread(); }
+  if (tab === "ssid") pollSsids(true);
   tick();
 });
 
@@ -709,12 +730,127 @@ try { $("showis").checked = localStorage.getItem("rfnetd.showis") === "1"; } cat
 $("showis").onchange = () => { try { localStorage.setItem("rfnetd.showis", $("showis").checked ? "1" : "0"); } catch (e) {} pollStations(); };
 map.on("zoomend", drawRoutes);
 
+// ---- pestaña SSID: estaciones agrupadas por indicativo base, con histórico de posiciones y mensajes ----
+for (let i = 1; i <= 15; i++) $("sssid").append(new Option("-" + i, i));
+let ssidOpen = new Set(), ssidSel = null, ssidSig = "", ssidAt = 0, ssidNow = 0;
+let sdMode = "pos", sdOldest = 0, sdDone = false, sdLoading = false, sdPages = 0, sdAt = 0, sdGen = 0;
+const histLayer = L.layerGroup().addTo(map);
+const ssidFiltered = () => !!($("sq").value.trim() || $("sssid").value);
+const selKey = o => o ? (o.call ? "c:" + o.call : "b:" + o.base) : "";
+async function pollSsids(force) {
+  if (!force && Date.now() - ssidAt < 10000) return;
+  ssidAt = Date.now();
+  const d = await getJSON("/api/ssids?" + qs({q: $("sq").value.trim(), ssid: $("sssid").value, window: $("swin").value})); me = d.me; ssidNow = d.now;
+  const sig = JSON.stringify([d.groups.map(g => [g.base, g.last, g.members.map(m => [m.call, m.pos_n, m.msg_out])]), [...ssidOpen], selKey(ssidSel), ssidFiltered()]);
+  if (sig === ssidSig) return; ssidSig = sig;
+  const nm = d.groups.reduce((n, g) => n + g.members.length, 0);
+  $("sinfo").textContent = d.groups.length + " indicativos · " + nm + " estaciones/SSID";
+  const box = $("sgroups"), top = box.scrollTop; box.replaceChildren();
+  const info = m => "hace " + ago(ssidNow - m.last) + " · " + m.pos_n + " pos · " + (m.msg_out + m.msg_in) + " msj" + (m.dir === "ig" && !m.rf_count ? " · Internet" : "");
+  for (const g of d.groups) {
+    const open = ssidFiltered() || ssidOpen.has(g.base);
+    const h = el("div", "st" + (ssidSel && !ssidSel.call && ssidSel.base === g.base ? " sel" : ""));
+    const arrow = el("span", "", open ? "▾ " : "▸ "); arrow.style.cursor = "pointer";
+    arrow.onclick = ev => { ev.stopPropagation(); ssidOpen.has(g.base) ? ssidOpen.delete(g.base) : ssidOpen.add(g.base); pollSsids(true); };
+    h.append(arrow, el("b", "", g.base), el("span", "unit", "  " + g.members.length + " SSID"),
+             el("small", "", "hace " + ago(ssidNow - g.last) + " · " + g.pos_n + " pos · " + g.msg_n + " msj"));
+    h.onclick = () => { ssidOpen.add(g.base); selectSsid({base: g.base}); };
+    box.appendChild(h);
+    if (!open) continue;
+    for (const m of g.members) {
+      const r = el("div", "st" + (ssidSel && ssidSel.call === m.call ? " sel" : "")); r.style.paddingLeft = "22px";
+      r.append(el("b", "", m.call), el("small", "", info(m)));
+      r.onclick = () => selectSsid({call: m.call, base: g.base}); box.appendChild(r);
+    }
+  }
+  box.scrollTop = top;
+}
+function selectSsid(sel) {
+  ssidSel = sel; ssidSig = "";
+  $("sd-title").textContent = sel.call ? sel.call : sel.base + " (todos los SSID)";
+  $("sd-map").disabled = false;
+  sdReset(); pollSsids(true);
+}
+function sdReset() { sdGen++; $("sd-log").replaceChildren(); sdOldest = 0; sdDone = false; sdPages = 0; sdAt = Date.now(); sdMore(true); }
+const sdWho = () => ssidSel.call ? {call: ssidSel.call, peer: ssidSel.call} : {base: ssidSel.base};
+function posNode(r, showCall) {
+  const d = el("div", ""); d.style.cssText = "margin:3px 0;padding:3px 6px;border:1px solid #c8c4bc;background:#f4f2ec;cursor:pointer";
+  let path = []; try { path = JSON.parse(r.path || "[]"); } catch (e) {}
+  const via = r.dir === "ig" ? "Internet (APRS-IS)" + (r.gateway ? " vía " + r.gateway : "") : routeText({src: r.key, gateway: r.gateway}, path);
+  d.append(el("div", "t", new Date(r.ts * 1000).toLocaleString() + (showCall ? "  " + r.key : "")),
+           el("div", "", r.lat.toFixed(5) + ", " + r.lon.toFixed(5) + (r.speed ? "  ·  " + Math.round(r.speed * 1.852) + " km/h" + (r.course != null ? ", rumbo " + r.course + "°" : "") : "")
+             + (r.comment ? "  «" + r.comment.trim() + "»" : "")),
+           el("div", "t", via));
+  d.title = "Ver este punto en el mapa"; d.onclick = () => showPoint(r);
+  return d;
+}
+async function sdMore(initial) {
+  if (!ssidSel || sdLoading || sdDone) return; sdLoading = true;
+  const gen = sdGen, box = $("sd-log"), msg = sdMode === "msg";
+  try {
+    const who = sdWho();
+    const d = await getJSON(msg ? "/api/messages?" + qs({peer: who.peer, base: who.base, before: sdOldest, limit: 100, noack: $("sd-ack").checked ? "" : "1"})
+                                : "/api/positions?" + qs({call: who.call, base: who.base, before: sdOldest, limit: 100}));
+    if (gen !== sdGen) return;
+    const rows = msg ? d.rows.slice().reverse() : d.rows;      // mensajes: la API da cronológico; aquí siempre de más nuevo a más antiguo
+    if (d.rows.length < 100) sdDone = true;
+    const old = box.querySelector("[data-more]"); if (old) old.remove();
+    for (const r of rows) box.appendChild(msg ? msgNode(r) : posNode(r, !ssidSel.call));
+    if (rows.length) sdOldest = msg ? d.rows[0].id : rows[rows.length - 1].id;
+    sdPages++;
+    if (sdDone) { const m = el("div", "t", rows.length || sdOldest ? "— fin del histórico —" : "— sin " + (msg ? "mensajes" : "posiciones") + " guardados —"); m.dataset.more = "1"; box.appendChild(m); }
+    else { const b = el("button", "", "Cargar más"); b.dataset.more = "1"; b.onclick = () => sdMore(false); box.appendChild(b); }
+    $("sd-info").textContent = "";
+  } catch (e) { $("sd-info").textContent = "error: " + e.message; } finally { sdLoading = false; }
+}
+document.querySelectorAll("input[name=sd]").forEach(r => r.onchange = () => {
+  sdMode = r.value; $("sd-ackl").style.display = sdMode === "msg" ? "" : "none"; if (ssidSel) sdReset();
+});
+$("sd-ack").onchange = () => { if (ssidSel) sdReset(); };
+let ssidTimer = null; const ssidRefresh = () => { clearTimeout(ssidTimer); ssidTimer = setTimeout(() => { ssidSig = ""; pollSsids(true); }, 300); };
+$("sq").oninput = ssidRefresh; $("sssid").onchange = ssidRefresh; $("swin").onchange = ssidRefresh;
+$("sexp").onclick = () => { getJSON("/api/ssids?" + qs({q: $("sq").value.trim(), ssid: $("sssid").value, window: $("swin").value})).then(d => { d.groups.forEach(g => ssidOpen.add(g.base)); pollSsids(true); }); };
+$("scol").onclick = () => { ssidOpen.clear(); pollSsids(true); };
+function showPoint(r) {
+  document.querySelector('#tabs [data-t="map"]').click();
+  histLayer.clearLayers();
+  L.circleMarker([r.lat, r.lon], {radius: 8, color: "#c25b00", fillColor: "#ffb74d", fillOpacity: .9, weight: 2})
+    .bindTooltip(r.key + " · " + new Date(r.ts * 1000).toLocaleString()).addTo(histLayer).openTooltip();
+  map.setView([r.lat, r.lon], Math.max(map.getZoom(), 13));
+}
+const TRAIL_COLORS = ["#d9822b", "#2b8ad9", "#2bd97a", "#d92b8a", "#8a2bd9", "#999900"];
+async function showTrail() {
+  if (!ssidSel) return;
+  const who = sdWho(), d = await getJSON("/api/positions?" + qs({call: who.call, base: who.base, limit: 1000}));
+  histLayer.clearLayers();
+  const byKey = {}; for (const r of d.rows.slice().reverse()) (byKey[r.key] = byKey[r.key] || []).push(r);
+  const all = []; let i = 0;
+  for (const [key, pts] of Object.entries(byKey)) {
+    const color = TRAIL_COLORS[i++ % TRAIL_COLORS.length], ll = pts.map(p => [p.lat, p.lon]); all.push(...ll);
+    if (ll.length > 1) L.polyline(ll, {color, weight: 2, opacity: .8}).bindTooltip(key).addTo(histLayer);
+    pts.forEach((p, n) => L.circleMarker([p.lat, p.lon], {radius: n === pts.length - 1 ? 6 : 3, color, fillColor: color, fillOpacity: .8, weight: 1})
+      .bindTooltip(key + " · " + new Date(p.ts * 1000).toLocaleString()).addTo(histLayer));
+  }
+  document.querySelector('#tabs [data-t="map"]').click();
+  if (all.length) map.fitBounds(all, {maxZoom: 14, padding: [30, 30]});
+}
+$("sd-map").onclick = showTrail;
+$("sd-clear").onclick = () => histLayer.clearLayers();
+async function pollSsidDetail() {   // refresco del detalle si el usuario no ha cargado páginas antiguas
+  if (!ssidSel || sdPages > 1 || sdLoading || Date.now() - sdAt < 10000) return;
+  sdAt = Date.now();
+  const box = $("sd-log"), st = box.scrollTop; sdGen++; const old = [...box.childNodes];
+  sdOldest = 0; sdDone = false; sdPages = 0; await sdMore(true);
+  old.forEach(n => n.remove()); box.scrollTop = st;
+}
+
 // ---- bucle ----
 async function tick() {
   const jobs = [pollStatus(), pollStations(), pollMine()];
   if (tab === "events") jobs.push(evFeed.live());
   if (tab === "logs") jobs.push(rawFeed.live());
   if (tab === "msgs") jobs.push(loadConvs(), liveMsgs());
+  if (tab === "ssid") jobs.push(pollSsids(false), pollSsidDetail());
   if (tab === "radio" || !radioSel) jobs.push(pollRadio());
   if (tab === "dw") jobs.push(loadDw(false));
   if (tab === "net") jobs.push(pollNet());

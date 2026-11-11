@@ -106,6 +106,8 @@ class Hub:
             # tx = lo emitimos nosotros; digi = copia de un paquete que ya se registró al recibirlo
             if pkt["dir"] not in ("tx", "digi"):
                 self.store.update(pkt, ts)
+                if "lat" in pkt:
+                    self.history.add_position(ts or time.time(), pkt.get("name") or pkt["src"], pkt)
             if pkt.get("type") == "message" and pkt["dir"] != "digi":
                 self.history.add_message(ts or time.time(), pkt)
             # El flujo de APRS-IS (decenas por hora) no va a Eventos; sí los mensajes para esta estación.

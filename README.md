@@ -9,6 +9,8 @@ audio en directo, histórico completo y una web con estilo *WinBox legacy*.
   uno esté listo y reinicia el conjunto si algo muere. Direwolf + red se pueden **activar/desactivar**
   desde la web.
 - **Mapa** OpenStreetMap con estaciones APRS, su ruta (origen → digipeaters/IGate → esta estación) y rastro.
+- **SSID**: estaciones agrupadas por indicativo base (EA1ABC → -1, -7, -9…), con filtro por texto, SSID y
+  tiempo, y el histórico de posiciones y mensajes de cada una (o de todos sus SSID), con rastro en el mapa.
 - **Mensajes** APRS con conversaciones y boletines (histórico completo, carga dinámica).
 - **Radio**: canal, frecuencia, señal, squelch y scan del TK-780.
 - **Direwolf**: opciones habituales (módem, tiempos, baliza, digipeater, IGate…) sin tocar tu `direwolf.conf`.

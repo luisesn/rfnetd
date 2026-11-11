@@ -3,6 +3,7 @@ import os
 import signal
 import threading
 
+from . import aprs
 from .audio import Streamer
 from .config import Config
 from .dwconf import Controls
@@ -29,6 +30,7 @@ def main():
     history = History(os.path.join(data_dir, "history.db"), cfg.int("history", "days"),
                       cfg.int("history", "max_raw_rows"))
     first_run = history.empty()
+    n = history.backfill_positions(aprs.parse_line)
     hub = Hub(cfg, store, history)
     controls = Controls(os.path.join(data_dir, "controls.json"))
     radio = Radio(cfg, hub)
@@ -38,6 +40,8 @@ def main():
     httpd = make_server(cfg, hub, store, sup, radio, audio, controls, history, tx)
     stop = threading.Event()
 
+    if n:
+        hub.log("Histórico de posiciones: reconstruidas %d posiciones desde los logs de Direwolf" % n)
     if first_run:
         store.reset()  # las estaciones se reconstruyen con el parser actual
         n = import_logs(hub, cfg, ("rfnetd", "direwolf", "tncattach", "capture", "radio", "audio"))

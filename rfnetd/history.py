@@ -7,6 +7,8 @@ import sqlite3
 import threading
 import time
 
+from .ssids import split_call
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS raw(id INTEGER PRIMARY KEY, ts REAL, src TEXT, text TEXT);
 CREATE INDEX IF NOT EXISTS raw_src ON raw(src, id);
@@ -16,6 +18,10 @@ CREATE INDEX IF NOT EXISTS ev_ts ON events(ts);
 CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, src TEXT, dest TEXT, text TEXT,
   msgno TEXT, kind TEXT, direction TEXT, gateway TEXT, path TEXT, conv TEXT, heard INTEGER DEFAULT 1);
 CREATE INDEX IF NOT EXISTS msg_conv ON messages(conv, id);
+CREATE TABLE IF NOT EXISTS positions(id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, key TEXT, base TEXT, lat REAL, lon REAL,
+  dir TEXT, gateway TEXT, path TEXT, comment TEXT, speed REAL, course REAL, sym TEXT);
+CREATE INDEX IF NOT EXISTS pos_key ON positions(key, id);
+CREATE INDEX IF NOT EXISTS pos_base ON positions(base, id);
 """
 BULLETIN_RE = re.compile(r"^(BLN|NWS|SKY|CWA|BOM|ANN)", re.I)
 LOG_RE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d{3} (.*)$")
@@ -42,6 +48,7 @@ class History:
                         "OR text GLOB 'EQNS.*' OR text GLOB 'BITS.*'")
         self.db.commit()
         self.lock = threading.Lock()
+        self._last_pos = {}   # clave -> (lat, lon, ts): evita guardar la misma posición una y otra vez
         self.q = queue.Queue()
         threading.Thread(target=self._writer, daemon=True, name="history").start()
 
@@ -83,6 +90,65 @@ class History:
     def empty(self):
         with self.lock:
             return self.db.execute("SELECT COUNT(*) FROM raw").fetchone()[0] == 0
+
+    # --- posiciones por estación ---
+    def add_position(self, ts, key, pkt):
+        """Guarda una posición; la misma posición repetida solo se registra de nuevo pasados 10 min."""
+        lat, lon = round(pkt["lat"], 5), round(pkt["lon"], 5)
+        with self.lock:
+            last = self._last_pos.get(key)
+            if last and last[:2] == (lat, lon) and ts - last[2] < 600:
+                return
+            self._last_pos[key] = (lat, lon, ts)
+            self.db.execute(
+                "INSERT INTO positions(ts,key,base,lat,lon,dir,gateway,path,comment,speed,course,sym) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (ts, key, split_call(key)[0], lat, lon, pkt.get("dir"), pkt.get("gateway"), json.dumps(pkt.get("path") or []),
+                 pkt.get("comment"), pkt.get("speed_kn"), pkt.get("course"),
+                 (pkt.get("table") or "/") + (pkt.get("symbol") or "")))
+            self.db.commit()
+
+    def backfill_positions(self, parse_line):
+        """Una sola vez: reconstruye las posiciones a partir de las líneas de Direwolf ya guardadas."""
+        with self.lock:
+            if self.db.execute("PRAGMA user_version").fetchone()[0] >= 1:
+                return 0
+            rows = self.db.execute("SELECT ts, text FROM raw WHERE src='direwolf' ORDER BY id").fetchall()
+        n = 0
+        for ts, text in rows:
+            pkt = parse_line(text)
+            if pkt and "lat" in pkt and pkt["dir"] not in ("tx", "digi"):
+                self.add_position(ts, pkt.get("name") or pkt["src"], pkt)
+                n += 1
+        with self.lock:
+            self.db.execute("PRAGMA user_version = 1")
+            self.db.commit()
+        return n
+
+    def positions(self, key="", base="", before=0, limit=100):
+        """Posiciones de una estación (key) o de todos sus SSID (base), de más nueva a más antigua."""
+        where, args = [], []
+        if key:
+            where.append("key = ?"); args.append(key)
+        elif base:
+            where.append("base = ?"); args.append(base.upper())
+        else:
+            return []
+        if before:
+            where.append("id < ?"); args.append(before)
+        with self.lock:
+            cur = self.db.execute("SELECT * FROM positions WHERE %s ORDER BY id DESC LIMIT ?" % " AND ".join(where), args + [limit])
+            names = [d[0] for d in cur.description]
+            return [dict(zip(names, r)) for r in cur.fetchall()]
+
+    def station_summaries(self):
+        """({clave: (n, ultimo)}) de posiciones, mensajes enviados y mensajes recibidos."""
+        with self.lock:
+            pos = {k: (n, t) for k, n, t in self.db.execute("SELECT key, COUNT(*), MAX(ts) FROM positions GROUP BY key")}
+            sent = {k: (n, t) for k, n, t in self.db.execute(
+                "SELECT src, COUNT(*), MAX(ts) FROM messages WHERE kind = 'msg' GROUP BY src")}
+            rcvd = {k: (n, t) for k, n, t in self.db.execute(
+                "SELECT dest, COUNT(*), MAX(ts) FROM messages WHERE kind = 'msg' GROUP BY dest")}
+        return pos, sent, rcvd
 
     # --- mensajes APRS ---
     def add_message(self, ts, pkt, status=None, tries=None):
@@ -188,8 +254,15 @@ class History:
                             "peers": conv[4:].split() if conv.startswith("BLN:") else conv.split("|")})
         return out
 
-    def messages(self, conv="", before=0, after=0, q="", limit=100, to=""):
+    def messages(self, conv="", before=0, after=0, q="", limit=100, to="", peer="", base="", noack=False):
         where, args = [], []
+        if peer:
+            where.append("(src = ? OR dest = ?)"); args += [peer, peer]
+        elif base:
+            like = _like(base)[1:-1] + "-%"
+            where.append("(src = ? OR dest = ? OR src LIKE ? ESCAPE '\\' OR dest LIKE ? ESCAPE '\\')"); args += [base, base, like, like]
+        if noack:
+            where.append("kind NOT IN ('ack', 'rej')")
         if conv:
             where.append("conv = ?"); args.append(conv)
         if to:
@@ -209,6 +282,7 @@ class History:
         with self.lock:
             self.db.execute("DELETE FROM raw WHERE ts < ?", (cutoff,))
             self.db.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
+            self.db.execute("DELETE FROM positions WHERE ts < ?", (cutoff,))
             n = self.db.execute("SELECT COUNT(*) FROM raw").fetchone()[0]
             if n > self.max_raw_rows:
                 self.db.execute("DELETE FROM raw WHERE id IN (SELECT id FROM raw ORDER BY id LIMIT ?)", (n - self.max_raw_rows,))
